@@ -82,6 +82,11 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: true }));
 
+// Session middleware placeholder — registered BEFORE routes so req.session is available.
+// The real session handler is injected during boot().
+let _sessionHandler = (_req, _res, next) => next();
+app.use((req, res, next) => _sessionHandler(req, res, next));
+
 // Session and DB init happen in async boot()
 let _booted = false;
 async function boot() {
@@ -90,12 +95,12 @@ async function boot() {
   await initDatabase();
   const secret = await getOrCreateSecret();
   if (!UPLOAD_SIGNING_SECRET) UPLOAD_SIGNING_SECRET = secret.trim();
-  app.use(session({
+  _sessionHandler = session({
     secret,
     resave: false,
     saveUninitialized: false,
     cookie: { httpOnly: true, sameSite: 'lax', maxAge: SESSION_REMEMBER_MAX_AGE_MS }
-  }));
+  });
   const seeded = await ensureOwner();
   if (seeded) {
     console.log('\n========================================');
@@ -109,7 +114,7 @@ async function boot() {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 async function currentUser(req) {
-  if (!req.session.userId) return null;
+  if (!req.session?.userId) return null;
   return await db.prepare(`SELECT id, email, first_name, last_name, role, status, address, postcode, city, phone, totp_enabled, email_verified
                      FROM users WHERE id = ?`).get(req.session.userId);
 }
@@ -137,7 +142,7 @@ async function requireAuth(req, res, next) {
   const u = await currentUser(req);
   if (!u) return res.status(401).json({ error: 'Niet ingelogd' });
   if (u.status !== 'ACTIVE') return res.status(403).json({ error: 'Account wacht op goedkeuring' });
-  if (req.session.force2faSetup && u.role === 'ADMIN' && !Number(u.totp_enabled || 0)) {
+  if (req.session?.force2faSetup && u.role === 'ADMIN' && !Number(u.totp_enabled || 0)) {
     const allowlist = new Set([
       '/api/auth/me',
       '/api/auth/logout',
@@ -2390,7 +2395,10 @@ app.post('/api/auth/login/2fa', loginLimiter, async (req, res) => {
   });
 });
 
-app.post('/api/auth/logout', async (req, res) => req.session.destroy(() => res.json({ ok: true })));
+app.post('/api/auth/logout', async (req, res) => {
+  if (req.session?.destroy) return req.session.destroy(() => res.json({ ok: true }));
+  res.json({ ok: true });
+});
 
 app.get('/api/auth/me', async (req, res) => {
   const u = await currentUser(req);
@@ -2401,7 +2409,7 @@ app.get('/api/auth/me', async (req, res) => {
       firstName: u.first_name, lastName: u.last_name,
       address: u.address || '', postcode: u.postcode || '', city: u.city || '', phone: u.phone || '',
       twoFactorEnabled: !!Number(u.totp_enabled || 0),
-      twoFactorSetupRequired: !!(req.session.force2faSetup && u.role === 'ADMIN'),
+      twoFactorSetupRequired: !!(req.session?.force2faSetup && u.role === 'ADMIN'),
       emailVerified: !!Number(u.email_verified || 0)
     }
   });
