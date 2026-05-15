@@ -112,7 +112,14 @@ async function boot() {
   if (!UPLOAD_SIGNING_SECRET) UPLOAD_SIGNING_SECRET = secret.trim();
   if (USE_PG) {
     const ssl = process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false };
-    _sessionPool = new Pool({ connectionString: process.env.DATABASE_URL, ssl });
+    const sessionPoolMax = Math.max(1, Math.min(6, Number(process.env.PG_SESSION_POOL_MAX) || 2));
+    _sessionPool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl,
+      max: sessionPoolMax,
+      idleTimeoutMillis: 10000,
+      connectionTimeoutMillis: 10000
+    });
     _sessionStore = new PgSessionStore({
       pool: _sessionPool,
       tableName: 'user_sessions',

@@ -24,11 +24,12 @@ function getPool() {
   const connStr = process.env.DATABASE_URL;
   if (!connStr) throw new Error('DATABASE_URL environment variable is required for PostgreSQL mode');
 
+  const max = Math.max(1, Math.min(8, Number(process.env.PG_POOL_MAX) || 4));
   pool = new Pool({
     connectionString: connStr,
     ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
-    max: 10,
-    idleTimeoutMillis: 30000,
+    max,
+    idleTimeoutMillis: 10000,
     connectionTimeoutMillis: 10000
   });
 
