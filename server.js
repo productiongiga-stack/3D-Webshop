@@ -1407,7 +1407,7 @@ async function sendTemplatedEmail(templateKey, to, vars = {}, opts = {}) {
   const branding = getEmailBranding(cfg);
   const mergedVars = {
     companyName: htmlEscape(companyName),
-    supportEmail: htmlEscape(cfg?.company?.supportEmail || cfg?.email?.fromAddress || ''),
+    supportEmail: htmlEscape(cfg?.company?.supportEmail || cfg?.email?.fromAddress || cfg?.smtp?.fromAddress || ''),
     dashboardUrl,
     loginUrl,
     brandName: htmlEscape(branding.brandName),
@@ -1426,9 +1426,15 @@ async function sendTemplatedEmail(templateKey, to, vars = {}, opts = {}) {
     ? `<img src="${APP_BASE_URL}/api/track/open/${encodeURIComponent(trackingToken)}.gif" width="1" height="1" style="display:none" alt="">`
     : '';
   const html = `${baseHtml}${trackingPixel}`;
-  const fromName = cfg?.email?.fromName || companyName;
-  const fromAddress = cfg?.email?.fromAddress || process.env.SMTP_FROM || process.env.SMTP_USER;
+  const fromName = cfg?.email?.fromName || cfg?.smtp?.fromName || companyName;
+  const fromAddress = cfg?.email?.fromAddress || cfg?.smtp?.fromAddress || process.env.SMTP_FROM || process.env.SMTP_USER;
   const replyTo = cfg?.email?.replyTo || cfg?.company?.supportEmail || undefined;
+
+  if (!fromAddress) {
+    const err = new Error('Afzender e-mailadres ontbreekt. Vul SMTP afzender e-mailadres in.');
+    err.status = 400;
+    throw err;
+  }
 
   await transporter.sendMail({
     from: `"${fromName.replace(/"/g, '')}" <${fromAddress}>`,
@@ -4540,7 +4546,7 @@ app.get('/api/admin/users', requireAuth, requireRole('OWNER'), async (req, res) 
   }
   // Voeg ordercount toe per gebruiker
   const countStmt = await db.prepare('SELECT COUNT(*) as cnt FROM orders WHERE user_id = ?');
-  rows = rows.map(r => ({ ...r, order_count: countStmt.get(r.id)?.cnt || 0 }));
+  rows = await Promise.all(rows.map(async (r) => ({ ...r, order_count: (await countStmt.get(r.id))?.cnt || 0 })));
   res.json({ users: rows });
 });
 
@@ -5045,8 +5051,10 @@ app.post('/api/admin/newsletter/send', requireAuth, requireRole('OWNER'), async 
     let sent = 0, failed = 0;
     for (const sub of subscribers) {
       try {
+        const fromAddress = cfg?.smtp?.fromAddress || cfg?.email?.fromAddress || process.env.SMTP_FROM || cfg?.smtp?.user;
+        const fromName = cfg?.smtp?.fromName || cfg?.email?.fromName || cfg.shopName || 'NEBULOUS';
         await transporter.sendMail({
-          from: `"${cfg.shopName || 'NEBULOUS'}" <${cfg.smtp.from || cfg.smtp.user}>`,
+          from: `"${String(fromName).replace(/"/g, '')}" <${fromAddress}>`,
           to: sub.email,
           subject,
           html
