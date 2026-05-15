@@ -434,7 +434,7 @@ function _nebMain() {
         const path = String(p?.mockupPath || state.productMockupPath || 'assets/tshirt_mockup.png').trim().replace(/^\/+/, '');
         const src = '/' + (path || 'assets/tshirt_mockup.png');
         activeProductBadge.innerHTML = `
-            <img class="apb-thumb" src="${escapeHtml(src)}" alt="${escapeHtml(name)}">
+            <img class="apb-thumb" src="${escapeHtml(src)}" alt="${escapeHtml(name)}" onerror="this.onerror=null;this.src='/assets/tshirt_mockup.png';">
             <div class="apb-copy">
                 <span class="apb-label">Geselecteerd product</span>
                 <strong class="apb-name">${escapeHtml(name)}</strong>
@@ -461,7 +461,7 @@ function _nebMain() {
                 const price = Math.max(0, Number(_cfg().pricing?.basePrice || 0) * mul);
                 return `
                     <button class="product-card" type="button" data-product-id="${id}" role="radio" aria-checked="false" title="${escapeHtml(String(p.name || 'Product'))}">
-                        <span class="pc-media"><img src="${escapeHtml(safePath(p.mockupPath))}" alt="${escapeHtml(String(p.name || 'Product'))}"></span>
+                        <span class="pc-media"><img src="${escapeHtml(safePath(p.mockupPath))}" alt="${escapeHtml(String(p.name || 'Product'))}" onerror="this.onerror=null;this.src='/assets/tshirt_mockup.png';"></span>
                         <span class="pc-name">${escapeHtml(String(p.name || 'Product'))}</span>
                         <span class="pc-meta">${escapeHtml(fmtEUR(price))}${mul !== 1 ? ` · x${mul.toFixed(2)}` : ''}</span>
                     </button>
@@ -2096,7 +2096,7 @@ async function placeOrder() {
             const id = escapeHtml(String(p.id || ''));
             const desc = String(p.description || 'Premium kwaliteit bedrukking.').trim();
             return `<button class="hp-product-card reveal" data-product-id="${id}" type="button">
-                <div class="hp-pc-media"><img src="${escapeHtml(safePath(p.mockupPath))}" alt="${escapeHtml(String(p.name || ''))}"></div>
+                <div class="hp-pc-media"><img src="${escapeHtml(safePath(p.mockupPath))}" alt="${escapeHtml(String(p.name || ''))}" onerror="this.onerror=null;this.src='/assets/tshirt_mockup.png';"></div>
                 <div class="hp-pc-body">
                     <h3 class="hp-pc-name">${escapeHtml(String(p.name || 'Product'))}</h3>
                     <p class="hp-pc-desc">${escapeHtml(desc)}</p>

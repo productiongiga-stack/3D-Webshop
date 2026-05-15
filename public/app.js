@@ -350,6 +350,13 @@ const NEB = (() => {
         if (logoSrc) {
           el.classList.add('has-logo-image');
           el.innerHTML = `<img src="${logoSrc}" alt="${cfg?.brand?.name || 'Logo'}">`;
+          const img = el.querySelector('img');
+          if (img) {
+            img.onerror = () => {
+              el.classList.remove('has-logo-image');
+              el.textContent = logoMark;
+            };
+          }
         } else {
           el.classList.remove('has-logo-image');
           el.textContent = logoMark;

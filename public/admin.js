@@ -2703,7 +2703,7 @@ async function showUserDetail(userId) {
 function renderProductCard(p, i) {
   const src = (p.mockupPath || '').replace(/^\/+/, '');
   const thumb = src
-    ? `<img src="/${escAttr(src)}" class="prod-card-img" alt="${escAttr(p.name)}" loading="lazy">`
+    ? `<img src="/${escAttr(src)}" class="prod-card-img" alt="${escAttr(p.name)}" loading="lazy" onerror="this.onerror=null;this.src='/assets/tshirt_mockup.png';">`
     : `<div class="prod-card-img prod-card-img--empty">📦</div>`;
   const priceLabel = p.basePrice != null ? NEB.fmtEUR(p.basePrice) : `×${Number(p.priceMultiplier || 1).toFixed(2)}`;
   const cc = (p.colorHexes || []).length;
@@ -2911,7 +2911,7 @@ function openProductModal(productIdx, draft, globalCfg, rerenderFn, persistFn = 
           <h4 class="prod-modal-section-title">Mockup afbeelding</h4>
           <div style="display:flex;align-items:center;gap:1rem">
             <div id="pmMockupThumb">
-              ${mockupSrc ? `<img src="/${escAttr(mockupSrc)}" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border)" alt="">` : `<div style="width:64px;height:64px;border-radius:8px;border:2px dashed var(--border);display:flex;align-items:center;justify-content:center;font-size:1.4rem">📦</div>`}
+              ${mockupSrc ? `<img src="/${escAttr(mockupSrc)}" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border)" alt="" onerror="this.onerror=null;this.src='/assets/tshirt_mockup.png';">` : `<div style="width:64px;height:64px;border-radius:8px;border:2px dashed var(--border);display:flex;align-items:center;justify-content:center;font-size:1.4rem">📦</div>`}
             </div>
             <div style="flex:1">
               <input id="pmMockupPath" class="select-inline" value="${escAttr(p.mockupPath || '')}" placeholder="assets/tshirt_mockup.png" style="width:100%;margin-bottom:.4rem">
@@ -3513,11 +3513,11 @@ function renderSettings(c) {
       <div class="brand-asset-previews">
         <div class="brand-asset-preview-card">
           <span class="muted compact">Logo preview</span>
-          ${theme.logoPath ? `<img src="/${String(theme.logoPath).replace(/^\/+/, '')}" alt="Logo preview">` : '<div class="brand-asset-placeholder">Geen logo geüpload</div>'}
+          ${theme.logoPath ? `<img src="/${String(theme.logoPath).replace(/^\/+/, '')}" alt="Logo preview" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('div'),{className:'brand-asset-placeholder',textContent:'Geen logo geüpload'}));">` : '<div class="brand-asset-placeholder">Geen logo geüpload</div>'}
         </div>
         <div class="brand-asset-preview-card">
           <span class="muted compact">Favicon preview</span>
-          ${theme.faviconPath ? `<img src="/${String(theme.faviconPath).replace(/^\/+/, '')}" alt="Favicon preview" class="favicon-preview">` : '<div class="brand-asset-placeholder">Geen favicon geüpload</div>'}
+          ${theme.faviconPath ? `<img src="/${String(theme.faviconPath).replace(/^\/+/, '')}" alt="Favicon preview" class="favicon-preview" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('div'),{className:'brand-asset-placeholder',textContent:'Geen favicon geüpload'}));">` : '<div class="brand-asset-placeholder">Geen favicon geüpload</div>'}
         </div>
       </div>
     </div>
