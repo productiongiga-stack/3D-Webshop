@@ -203,8 +203,8 @@ CREATE TABLE IF NOT EXISTS deposit_invoices (
 -- ── Audit log ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS audit_log (
   id SERIAL PRIMARY KEY,
-  actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  actor_email TEXT,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  user_email TEXT,
   action TEXT NOT NULL,
   entity_type TEXT,
   entity_id TEXT,

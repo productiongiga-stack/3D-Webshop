@@ -46,11 +46,77 @@ if (USE_PG) {
   };
 }
 
+async function getPgTableColumns(tableName) {
+  const rows = await db.prepare(`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = current_schema() AND table_name = ?
+  `).all(tableName);
+  return new Set(rows.map((row) => String(row.column_name || '').toLowerCase()));
+}
+
+async function getSqliteTableColumns(tableName) {
+  const rows = await db.pragma(`table_info(${tableName})`);
+  return new Set((rows || []).map((row) => String(row.name || '').toLowerCase()));
+}
+
+async function ensureAuditLogSchemaCompat() {
+  const cols = USE_PG ? await getPgTableColumns('audit_log') : await getSqliteTableColumns('audit_log');
+  if (!cols.size) return;
+
+  const hasUserId = cols.has('user_id');
+  const hasUserEmail = cols.has('user_email');
+  const hasActorUserId = cols.has('actor_user_id');
+  const hasActorEmail = cols.has('actor_email');
+
+  if (USE_PG) {
+    if (!hasUserId) {
+      await db.exec(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;`);
+    }
+    if (!hasUserEmail) {
+      await db.exec(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS user_email TEXT;`);
+    }
+    if (hasActorUserId) {
+      await db.exec(`UPDATE audit_log SET user_id = COALESCE(user_id, actor_user_id) WHERE actor_user_id IS NOT NULL;`);
+    }
+    if (hasActorEmail) {
+      await db.exec(`UPDATE audit_log SET user_email = COALESCE(user_email, actor_email) WHERE actor_email IS NOT NULL;`);
+    }
+    return;
+  }
+
+  if (!hasUserId) {
+    await db.exec(`ALTER TABLE audit_log ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;`);
+  }
+  if (!hasUserEmail) {
+    await db.exec(`ALTER TABLE audit_log ADD COLUMN user_email TEXT;`);
+  }
+  if (hasActorUserId) {
+    await db.exec(`UPDATE audit_log SET user_id = COALESCE(user_id, actor_user_id) WHERE actor_user_id IS NOT NULL;`);
+  }
+  if (hasActorEmail) {
+    await db.exec(`UPDATE audit_log SET user_email = COALESCE(user_email, actor_email) WHERE actor_email IS NOT NULL;`);
+  }
+}
+
 // ── Schema init ───────────────────────────────────────────────────────────────
 async function initDatabase() {
   if (USE_PG) {
     await db.initSchema();
     await db.exec(`
+CREATE TABLE IF NOT EXISTS audit_log (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  user_email TEXT,
+  action TEXT NOT NULL,
+  entity_type TEXT,
+  entity_id TEXT,
+  summary TEXT NOT NULL,
+  details TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
 CREATE TABLE IF NOT EXISTS upload_blobs (
   path TEXT PRIMARY KEY,
   mime_type TEXT NOT NULL,
@@ -61,6 +127,7 @@ CREATE TABLE IF NOT EXISTS upload_blobs (
 );
 CREATE INDEX IF NOT EXISTS idx_upload_blobs_updated_at ON upload_blobs(updated_at);
     `);
+    await ensureAuditLogSchemaCompat();
   } else {
     // SQLite schema (inline, same as original db.js)
     await db.exec(`
@@ -296,6 +363,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
 CREATE INDEX IF NOT EXISTS idx_upload_blobs_updated_at ON upload_blobs(updated_at);
     `);
+    await ensureAuditLogSchemaCompat();
 
     // SQLite triggers
     try {
