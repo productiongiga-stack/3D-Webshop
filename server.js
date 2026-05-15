@@ -17,6 +17,7 @@ const archiver = require('archiver');
 const crypto = require('crypto');
 
 const { db, getConfig, setSetting, getSetting, ensureOwner, getOrCreateSecret, sortSizes, encryptSetting, decryptSetting, initDatabase, USE_PG, sanitizeProducts } = require('./db');
+const pgAdapter = USE_PG ? require('./db-pg') : null;
 const { version: APP_VERSION = '0.0.0' } = require('./package.json');
 // Only load better-sqlite3 when in SQLite mode (for backup/restore)
 const Database = USE_PG ? null : require('better-sqlite3');
@@ -111,15 +112,7 @@ async function boot() {
   const secret = await getOrCreateSecret();
   if (!UPLOAD_SIGNING_SECRET) UPLOAD_SIGNING_SECRET = secret.trim();
   if (USE_PG) {
-    const ssl = process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false };
-    const sessionPoolMax = Math.max(1, Math.min(6, Number(process.env.PG_SESSION_POOL_MAX) || 1));
-    _sessionPool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl,
-      max: sessionPoolMax,
-      idleTimeoutMillis: 10000,
-      connectionTimeoutMillis: 10000
-    });
+    _sessionPool = pgAdapter.getPool();
     _sessionStore = new PgSessionStore({
       pool: _sessionPool,
       tableName: 'user_sessions',
