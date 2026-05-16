@@ -213,6 +213,13 @@ CREATE TABLE IF NOT EXISTS audit_log (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- ── Sessions ──────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS user_sessions (
+  sid VARCHAR NOT NULL PRIMARY KEY,
+  sess JSON NOT NULL,
+  expire TIMESTAMP(6) NOT NULL
+);
+
 -- ── Indexes ───────────────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
@@ -233,6 +240,7 @@ CREATE INDEX IF NOT EXISTS idx_deposit_invoices_order ON deposit_invoices(order_
 CREATE INDEX IF NOT EXISTS idx_deposit_invoices_status ON deposit_invoices(status);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_expire ON user_sessions(expire);
 
 -- ── Auto-update triggers ──────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION update_updated_at()

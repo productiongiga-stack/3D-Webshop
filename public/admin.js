@@ -761,6 +761,10 @@ async function loadOrders() {
     renderOrdersError(err);
     return;
   }
+  data = data || {};
+  const orders = Array.isArray(data.orders) ? data.orders : [];
+  const pages = Math.max(1, Number(data.pages || 1));
+  const pageNo = Math.max(1, Number(data.page || ORDER_STATE.page || 1));
 
   // Stats
   const stats = document.getElementById('orderStats');
@@ -768,7 +772,7 @@ async function loadOrders() {
   ORDER_STATE.archived = String(data.archived || ORDER_STATE.archived || 'ACTIVE').toUpperCase();
   const archivedSel = document.getElementById('orderArchived');
   if (archivedSel && archivedSel.value !== ORDER_STATE.archived) archivedSel.value = ORDER_STATE.archived;
-  stats.innerHTML = `
+  if (stats) stats.innerHTML = `
     <div class="stat"><div class="stat-label">Totale orders</div><div class="stat-value">${s.total_orders || 0}</div></div>
     <div class="stat"><div class="stat-label">Open</div><div class="stat-value">${s.open_count || 0}</div></div>
     <div class="stat"><div class="stat-label">Verzonden + bezorgd</div><div class="stat-value">${s.done_count || 0}</div></div>
@@ -776,7 +780,9 @@ async function loadOrders() {
   `;
 
   const wrap = document.getElementById('ordersWrap');
-  if (!data.orders.length) {
+  const pager = document.getElementById('pager');
+  if (!wrap) return;
+  if (!orders.length) {
     clearOrderSelection();
     const emptyText = ORDER_STATE.archived === 'DELETED'
       ? 'Geen gearchiveerde bestellingen gevonden.'
@@ -784,10 +790,10 @@ async function loadOrders() {
         ? 'Geen bestellingen gevonden voor deze filters.'
         : 'Pas je filters aan of wacht tot er nieuwe orders binnenkomen.';
     wrap.innerHTML = `<div class="card empty-state"><h3>Geen bestellingen gevonden</h3><p>${emptyText}</p></div>`;
-    document.getElementById('pager').innerHTML = '';
+    if (pager) pager.innerHTML = '';
     return;
   }
-  const visibleIds = new Set(data.orders.map(o => Number(o.id)));
+  const visibleIds = new Set(orders.map(o => Number(o.id)));
   ORDER_SELECTION = new Set(Array.from(ORDER_SELECTION).filter(id => visibleIds.has(Number(id))));
   updateBulkBar();
   wrap.innerHTML = `
@@ -799,7 +805,7 @@ async function loadOrders() {
           <th style="text-align:right">Totaal</th><th></th>
         </tr></thead>
         <tbody>
-          ${data.orders.map((o) => {
+          ${orders.map((o) => {
             const isArchived = !!o.deleted_at;
             const rowPill = isArchived
               ? '<span class="pill pill-cancelled">Gearchiveerd</span>'
@@ -844,21 +850,20 @@ async function loadOrders() {
   syncOrderSelectAllState();
 
   // Pager
-  const pager = document.getElementById('pager');
-  if (data.pages > 1) {
+  if (pager && pages > 1) {
     let buttons = '';
-    for (let i = 1; i <= data.pages; i++) {
-      buttons += `<button data-page="${i}" class="${i === data.page ? 'active' : ''}">${i}</button>`;
+    for (let i = 1; i <= pages; i++) {
+      buttons += `<button data-page="${i}" class="${i === pageNo ? 'active' : ''}">${i}</button>`;
     }
     pager.innerHTML = `
-      <button data-page="${Math.max(1, data.page - 1)}" ${data.page === 1 ? 'disabled' : ''}>‹</button>
+      <button data-page="${Math.max(1, pageNo - 1)}" ${pageNo === 1 ? 'disabled' : ''}>‹</button>
       ${buttons}
-      <button data-page="${Math.min(data.pages, data.page + 1)}" ${data.page === data.pages ? 'disabled' : ''}>›</button>`;
+      <button data-page="${Math.min(pages, pageNo + 1)}" ${pageNo === pages ? 'disabled' : ''}>›</button>`;
     pager.onclick = e => {
       const p = e.target.closest('[data-page]')?.dataset.page;
       if (p) { ORDER_STATE.page = Number(p); loadOrders(); }
     };
-  } else { pager.innerHTML = ''; }
+  } else if (pager) { pager.innerHTML = ''; }
 
   wrap.onchange = async (e) => {
     if (e.target.id === 'orderSelectAll') {
@@ -2275,7 +2280,9 @@ async function loadUsers(opts = {}) {
   if (opts.tag) params.set('tag', opts.tag);
   if (opts.newsletter) params.set('newsletter', '1');
   if (opts.status) params.set('status', opts.status);
-  const { users } = await NEB.get('/api/admin/users?' + params.toString());
+  const data = await NEB.get('/api/admin/users?' + params.toString());
+  const users = Array.isArray(data?.users) ? data.users : [];
+  const totalUsers = Number(data?.total || users.length || 0);
   _usersList = users;
   const pending = users.filter(u => u.status === 'PENDING');
   const others = users.filter(u => u.status !== 'PENDING');
@@ -2315,7 +2322,7 @@ async function loadUsers(opts = {}) {
       <div class="users-toolbar">
         <div style="display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;flex:1;min-width:0">
           <span class="users-count-label">Alle accounts</span>
-          <span class="users-count-badge">${others.length}</span>
+          <span class="users-count-badge">${others.length}${totalUsers && totalUsers !== users.length ? ` / ${totalUsers}` : ''}</span>
         </div>
         <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
           <input type="search" id="userSearch" placeholder="Zoek…" value="${escAttr(q)}" class="users-search">
@@ -3339,7 +3346,9 @@ async function loadStripeStatus() {
 
 async function loadSettings() {
   if (CURRENT_USER.role !== 'OWNER') return;
-  const cfg = await NEB.config();
+  const cfg = await NEB.get('/api/admin/config');
+  window.NEB_CONFIG = cfg || {};
+  NEB.applyBranding(window.NEB_CONFIG);
   const wrap = document.getElementById('settingsWrap');
   wrap.innerHTML = renderSettings(cfg);
   bindSettings(cfg);
@@ -3366,6 +3375,7 @@ function renderSettings(c) {
   const themeInvoiceOpenText = String(theme.invoiceOpenText || '#eff6ff');
   const themeInvoiceDueBg = String(theme.invoiceDueBg || '#f59e0b');
   const themeInvoiceDueText = String(theme.invoiceDueText || '#111827');
+  const themeMode = String(theme.themeMode || 'DARK').toUpperCase() === 'LIGHT' ? 'LIGHT' : 'DARK';
   const convVariant = String(conversion.ctaVariant || 'SOFT').toUpperCase() === 'STRONG' ? 'STRONG' : 'SOFT';
   // sizeRows moved to renderProductsTabPanel()
 
@@ -3520,6 +3530,13 @@ function renderSettings(c) {
       </div>
       <div class="form-grid-2">
         <div class="field"><label>Logo symbool</label><input id="themeLogoMark" value="${escAttr(theme.logoMark || '✦')}" maxlength="2" placeholder="✦"></div>
+        <div class="field"><label>Website modus</label>
+          <select id="themeMode">
+            <option value="DARK" ${themeMode === 'DARK' ? 'selected' : ''}>Donker</option>
+            <option value="LIGHT" ${themeMode === 'LIGHT' ? 'selected' : ''}>Licht</option>
+          </select>
+          <div class="hint">Kies hier of de volledige website licht of donker rendert.</div>
+        </div>
         <div class="field"><label>Thema preset</label>
           <div style="display:flex;gap:.5rem">
             <select id="themePreset" style="flex:1">
@@ -3691,7 +3708,7 @@ function renderSettings(c) {
         <div class="field"><label>SMTP host</label><input id="smtpHost" value="${escAttr(smtp.host || '')}" placeholder="smtp.gmail.com"></div>
         <div class="field"><label>SMTP poort</label><input type="number" id="smtpPort" value="${escAttr(smtp.port || 587)}" placeholder="587"></div>
         <div class="field"><label>Gebruikersnaam</label><input id="smtpUser" value="${escAttr(smtp.user || '')}" placeholder="jouw@email.be" autocomplete="off"></div>
-        <div class="field"><label>Wachtwoord / app-wachtwoord</label><input type="password" id="smtpPass" value="${escAttr(smtp.pass || '')}" autocomplete="new-password" placeholder="••••••••"></div>
+        <div class="field"><label>Wachtwoord / app-wachtwoord</label><input type="password" id="smtpPass" value="" autocomplete="new-password" placeholder="${smtp.passSet ? 'Opgeslagen - leeg laten om te behouden' : '••••••••'}"><div class="hint">${smtp.passSet ? 'Er staat een wachtwoord opgeslagen. Vul alleen iets in om het te vervangen.' : 'Vul je SMTP/app-wachtwoord in om e-mail te kunnen testen.'}</div></div>
         <div class="field"><label style="display:flex;align-items:center;gap:.5rem;text-transform:none;letter-spacing:0;font-size:.92rem;color:var(--text);margin-top:1.4rem">
           <input type="checkbox" id="smtpSecure" ${smtp.secure ? 'checked' : ''}> SSL/TLS (poort 465)
         </label></div>
@@ -3853,11 +3870,18 @@ function bindSettings(cfg) {
   if (wrap._settingsInputHandler) wrap.removeEventListener('input', wrap._settingsInputHandler);
   if (wrap._settingsChangeHandler) wrap.removeEventListener('change', wrap._settingsChangeHandler);
 
+  function applySavedConfig(out) {
+    const saved = out?.config || draft;
+    window.NEB_CONFIG = JSON.parse(JSON.stringify(saved));
+    NEB.applyBranding(window.NEB_CONFIG);
+    savedSnapshot = JSON.parse(JSON.stringify(saved));
+    savedSnapshot.products = normalizeProducts(savedSnapshot.products);
+  }
+
   const persistDraftFromModal = async (successMsg = 'Instellingen opgeslagen') => {
     captureFlatFields();
-    await NEB.put('/api/admin/config', draft);
-    savedSnapshot = JSON.parse(JSON.stringify(draft));
-    savedSnapshot.products = normalizeProducts(savedSnapshot.products);
+    const out = await NEB.put('/api/admin/config', draft);
+    applySavedConfig(out);
     updateAllTemplateVersionUI();
     NEB.toast(successMsg, 'success');
   };
@@ -3866,7 +3890,8 @@ function bindSettings(cfg) {
     const values = THEME_PRESETS[key];
     if (!values) return false;
     draft.theme = draft.theme || {};
-    Object.assign(draft.theme, values, { themePreset: key });
+    const mode = draft.theme.themeMode || 'DARK';
+    Object.assign(draft.theme, values, { themePreset: key, themeMode: mode });
     return true;
   };
 
@@ -3958,7 +3983,7 @@ function bindSettings(cfg) {
       try {
         if (btn) { btn.disabled = true; btn.textContent = 'Versturen...'; }
         if (result) result.textContent = 'Config opslaan...';
-        await NEB.put('/api/admin/config', draft);
+        applySavedConfig(await NEB.put('/api/admin/config', draft));
         if (result) result.textContent = 'Testmail versturen...';
         const out = await NEB.post('/api/admin/email/test', { templateKey: 'orderPlaced', to });
         if (out?.info?.skipped === 'smtp_not_configured') {
@@ -4059,7 +4084,7 @@ function bindSettings(cfg) {
       const oldTxt = btn?.textContent;
       try {
         if (btn) { btn.disabled = true; btn.textContent = 'Versturen...'; }
-        await NEB.put('/api/admin/config', draft);
+        applySavedConfig(await NEB.put('/api/admin/config', draft));
         const out = await NEB.post('/api/admin/email/test', { templateKey: testTemplate, to });
         if (out?.info?.skipped === 'smtp_not_configured') {
           NEB.toast('SMTP is nog niet geconfigureerd', 'error');
@@ -4240,6 +4265,7 @@ function bindSettings(cfg) {
     draft.seo.ogImagePath = /^https?:\/\//i.test(rawOgImage) ? rawOgImage.replace(/\s+/g, '') : rawOgImage.replace(/^\/+/, '');
     draft.theme = draft.theme || {};
     draft.theme.themePreset = String(wrap.querySelector('#themePreset')?.value || draft.theme.themePreset || 'CUSTOM').toUpperCase();
+    draft.theme.themeMode = String(wrap.querySelector('#themeMode')?.value || draft.theme.themeMode || 'DARK').toUpperCase() === 'LIGHT' ? 'LIGHT' : 'DARK';
     draft.theme.logoMark = (wrap.querySelector('#themeLogoMark')?.value || draft.theme.logoMark || '✦').slice(0, 2);
     draft.theme.accentColor = wrap.querySelector('#themeAccentColor')?.value || draft.theme.accentColor || '#ffffff';
     draft.theme.accentColor2 = wrap.querySelector('#themeAccentColor2')?.value || draft.theme.accentColor2 || '#bdbdbd';
@@ -4319,7 +4345,6 @@ function bindSettings(cfg) {
     const smtpUserInput = (wrap.querySelector('#smtpUser')?.value || '').trim();
     const smtpPassInput = wrap.querySelector('#smtpPass')?.value || '';
     if (smtpUserInput) draft.smtp.user = smtpUserInput;
-    else delete draft.smtp.user;
     if (smtpPassInput) draft.smtp.pass = smtpPassInput;
     else delete draft.smtp.pass;
     draft.smtp.secure = !!wrap.querySelector('#smtpSecure')?.checked;
@@ -4391,8 +4416,8 @@ function bindSettings(cfg) {
   async function save() {
     captureFlatFields();
     try {
-      await NEB.put('/api/admin/config', draft);
-      savedSnapshot = JSON.parse(JSON.stringify(draft));
+      const out = await NEB.put('/api/admin/config', draft);
+      applySavedConfig(out);
       updateAllTemplateVersionUI();
       NEB.toast('Instellingen opgeslagen', 'success');
     } catch (err) { NEB.toast(err.message, 'error'); }

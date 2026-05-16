@@ -6,10 +6,17 @@
 const { app, boot } = require('../server');
 
 let booted = false;
+let bootPromise = null;
 
 module.exports = async (req, res) => {
   if (!booted) {
-    await boot();
+    bootPromise = bootPromise || boot();
+    try {
+      await bootPromise;
+    } catch (err) {
+      bootPromise = null;
+      throw err;
+    }
     booted = true;
   }
   return app(req, res);

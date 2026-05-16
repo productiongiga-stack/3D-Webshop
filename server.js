@@ -105,40 +105,50 @@ let _sessionPool = null;
 
 // Session and DB init happen in async boot()
 let _booted = false;
+let _bootPromise = null;
 async function boot() {
   if (_booted) return;
-  _booted = true;
-  await initDatabase();
-  const secret = await getOrCreateSecret();
-  if (!UPLOAD_SIGNING_SECRET) UPLOAD_SIGNING_SECRET = secret.trim();
-  if (USE_PG) {
-    _sessionPool = pgAdapter.getPool();
-    _sessionStore = new PgSessionStore({
-      pool: _sessionPool,
-      tableName: 'user_sessions',
-      createTableIfMissing: false
-    });
-  }
-  _sessionHandler = session({
-    secret,
-    resave: false,
-    saveUninitialized: false,
-    store: _sessionStore || undefined,
-    cookie: {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: SESSION_REMEMBER_MAX_AGE_MS
+  if (_bootPromise) return _bootPromise;
+  _bootPromise = (async () => {
+    await initDatabase();
+    const secret = await getOrCreateSecret();
+    if (!UPLOAD_SIGNING_SECRET) UPLOAD_SIGNING_SECRET = secret.trim();
+    if (USE_PG) {
+      _sessionPool = pgAdapter.getPool();
+      _sessionStore = new PgSessionStore({
+        pool: _sessionPool,
+        tableName: 'user_sessions',
+        createTableIfMissing: false
+      });
     }
-  });
-  const seeded = await ensureOwner();
-  if (seeded) {
-    console.log('\n========================================');
-    console.log(' OWNER ACCOUNT AANGEMAAKT');
-    console.log(` Email:    ${seeded.email}`);
-    console.log(` Password: ${seeded.password}`);
-    console.log(' Wijzig dit wachtwoord direct na eerste login (/account)');
-    console.log('========================================\n');
+    _sessionHandler = session({
+      secret,
+      resave: false,
+      saveUninitialized: false,
+      store: _sessionStore || undefined,
+      cookie: {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: SESSION_REMEMBER_MAX_AGE_MS
+      }
+    });
+    const seeded = await ensureOwner();
+    if (seeded) {
+      console.log('\n========================================');
+      console.log(' OWNER ACCOUNT AANGEMAAKT');
+      console.log(` Email:    ${seeded.email}`);
+      console.log(` Password: ${seeded.password}`);
+      console.log(' Wijzig dit wachtwoord direct na eerste login (/account)');
+      console.log('========================================\n');
+    }
+    _booted = true;
+  })();
+  try {
+    await _bootPromise;
+  } catch (err) {
+    _bootPromise = null;
+    throw err;
   }
 }
 
@@ -1407,7 +1417,7 @@ async function sendTemplatedEmail(templateKey, to, vars = {}, opts = {}) {
   const branding = getEmailBranding(cfg);
   const mergedVars = {
     companyName: htmlEscape(companyName),
-    supportEmail: htmlEscape(cfg?.company?.supportEmail || cfg?.email?.fromAddress || cfg?.smtp?.fromAddress || ''),
+    supportEmail: htmlEscape(cfg?.company?.supportEmail || cfg?.smtp?.fromAddress || cfg?.email?.fromAddress || ''),
     dashboardUrl,
     loginUrl,
     brandName: htmlEscape(branding.brandName),
@@ -1426,8 +1436,8 @@ async function sendTemplatedEmail(templateKey, to, vars = {}, opts = {}) {
     ? `<img src="${APP_BASE_URL}/api/track/open/${encodeURIComponent(trackingToken)}.gif" width="1" height="1" style="display:none" alt="">`
     : '';
   const html = `${baseHtml}${trackingPixel}`;
-  const fromName = cfg?.email?.fromName || cfg?.smtp?.fromName || companyName;
-  const fromAddress = cfg?.email?.fromAddress || cfg?.smtp?.fromAddress || process.env.SMTP_FROM || process.env.SMTP_USER;
+  const fromName = cfg?.smtp?.fromName || cfg?.email?.fromName || companyName;
+  const fromAddress = cfg?.smtp?.fromAddress || cfg?.email?.fromAddress || process.env.SMTP_FROM || process.env.SMTP_USER || cfg?.smtp?.user;
   const replyTo = cfg?.email?.replyTo || cfg?.company?.supportEmail || undefined;
 
   if (!fromAddress) {
@@ -4168,8 +4178,8 @@ app.post('/api/admin/orders/:id/send-invoice', requireAuth, requireRole('ADMIN',
       const bodyHtml = `<p>Beste ${htmlEscape(customerName)},</p><p>Hierbij vindt u de factuur <strong>${htmlEscape(invoiceNo)}</strong> voor uw bestelling #${formatOrderId(order.id)} in bijlage.</p>`;
       const fallbackSubject = subject || `Factuur ${invoiceNo}`;
       const emailHtml = `${buildBrandedEmailHtml(bodyHtml, fallbackSubject, config)}<img src="${APP_BASE_URL}/api/track/open/${encodeURIComponent(trackingToken)}.gif" width="1" height="1" style="display:none" alt="">`;
-      const fromName = config?.email?.fromName || config?.brand?.name || brandName;
-      const fromAddress = config?.email?.fromAddress || config?.smtp?.fromAddress || process.env.SMTP_FROM || process.env.SMTP_USER || '';
+      const fromName = config?.smtp?.fromName || config?.email?.fromName || config?.brand?.name || brandName;
+      const fromAddress = config?.smtp?.fromAddress || config?.email?.fromAddress || process.env.SMTP_FROM || process.env.SMTP_USER || config?.smtp?.user || '';
       await transporter.sendMail({
         from: `"${fromName.replace(/"/g, '')}" <${fromAddress}>`,
         to: order.customer_email,
@@ -4547,7 +4557,16 @@ app.get('/api/admin/users', requireAuth, requireRole('OWNER'), async (req, res) 
   // Voeg ordercount toe per gebruiker
   const countStmt = await db.prepare('SELECT COUNT(*) as cnt FROM orders WHERE user_id = ?');
   rows = await Promise.all(rows.map(async (r) => ({ ...r, order_count: (await countStmt.get(r.id))?.cnt || 0 })));
-  res.json({ users: rows });
+  const counts = await db.prepare(`
+    SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN status='PENDING' THEN 1 ELSE 0 END) AS pending,
+      SUM(CASE WHEN status='ACTIVE' THEN 1 ELSE 0 END) AS active,
+      SUM(CASE WHEN status='BLOCKED' THEN 1 ELSE 0 END) AS blocked,
+      SUM(CASE WHEN newsletter_opt_in = 1 THEN 1 ELSE 0 END) AS newsletter
+    FROM users
+  `).get();
+  res.json({ users: rows, total: counts?.total || 0, visible: rows.length, counts: counts || {} });
 });
 
 app.get('/api/admin/users/:id(\\d+)', requireAuth, requireRole('OWNER'), async (req, res) => {
@@ -4643,6 +4662,23 @@ app.delete('/api/admin/users/:id(\\d+)', requireAuth, requireRole('OWNER'), asyn
 });
 
 // ── Owner: settings ───────────────────────────────────────────────────────
+function toAdminConfigPayload(cfg = {}) {
+  const safe = JSON.parse(JSON.stringify(cfg || {}));
+  const smtp = safe.smtp || {};
+  safe.smtp = {
+    ...smtp,
+    pass: '',
+    passSet: !!smtp.pass,
+    configured: !!smtp.host
+  };
+  return safe;
+}
+
+app.get('/api/admin/config', requireAuth, requireRole('OWNER'), async (_req, res) => {
+  const cfg = await getConfig();
+  res.json(toAdminConfigPayload(cfg));
+});
+
 app.put('/api/admin/config', requireAuth, requireRole('OWNER'), async (req, res) => {
   const cfg = req.body || {};
   const before = await getConfig();
@@ -4719,7 +4755,7 @@ app.put('/api/admin/config', requireAuth, requireRole('OWNER'), async (req, res)
     return res.status(400).json({ error: 'theme moet een object zijn' });
   }
   if (cfg.theme) {
-    const nextTheme = { ...cfg.theme };
+    const nextTheme = { ...(before?.theme || {}), ...cfg.theme };
     const hex6 = /^#[0-9a-fA-F]{6}$/;
     const normalizeThemeColor = (raw, fallback) => {
       const v = String(raw || '').trim();
@@ -4767,6 +4803,10 @@ app.put('/api/admin/config', requireAuth, requireRole('OWNER'), async (req, res)
       const v = String(nextTheme.themePreset || '').toUpperCase();
       nextTheme.themePreset = allowedPresets.has(v) ? v : 'CUSTOM';
     }
+    if (nextTheme.themeMode != null) {
+      const v = String(nextTheme.themeMode || '').toUpperCase();
+      nextTheme.themeMode = v === 'LIGHT' ? 'LIGHT' : 'DARK';
+    }
     nextTheme.invoiceOpenBg = normalizeThemeColor(nextTheme.invoiceOpenBg, '#1d4ed8');
     nextTheme.invoiceOpenText = normalizeThemeColor(nextTheme.invoiceOpenText, '#eff6ff');
     nextTheme.invoiceDueBg = normalizeThemeColor(nextTheme.invoiceDueBg, '#f59e0b');
@@ -4776,11 +4816,15 @@ app.put('/api/admin/config', requireAuth, requireRole('OWNER'), async (req, res)
   if (Array.isArray(cfg.sizes)) cfg.sizes = sortSizes(cfg.sizes);
   if (cfg.smtp != null && typeof cfg.smtp === 'object' && !Array.isArray(cfg.smtp)) {
     const base = before?.smtp || {};
+    const nextUserRaw = cfg.smtp.user;
+    const nextPassRaw = cfg.smtp.pass;
+    const nextUser = String(nextUserRaw == null ? '' : nextUserRaw).trim();
+    const nextPass = String(nextPassRaw == null ? '' : nextPassRaw);
     cfg.smtp = {
       host: cleanText(cfg.smtp.host != null ? cfg.smtp.host : (base.host || ''), 120),
       port: Math.min(65535, Math.max(1, Number(cfg.smtp.port != null ? cfg.smtp.port : (base.port || 587)) || 587)),
-      user: cleanText(cfg.smtp.user != null ? cfg.smtp.user : (base.user || ''), 120),
-      pass: cleanText(cfg.smtp.pass != null ? cfg.smtp.pass : (base.pass || ''), 200),
+      user: nextUser ? cleanText(nextUser, 120) : cleanText(base.user || '', 120),
+      pass: nextPass ? cleanText(nextPass, 200) : cleanText(base.pass || '', 200),
       secure: !!(cfg.smtp.secure != null ? cfg.smtp.secure : base.secure),
       fromName: cleanText(cfg.smtp.fromName != null ? cfg.smtp.fromName : (base.fromName || ''), 80),
       fromAddress: cleanText(cfg.smtp.fromAddress != null ? cfg.smtp.fromAddress : (base.fromAddress || ''), 120)
@@ -4832,7 +4876,7 @@ app.put('/api/admin/config', requireAuth, requireRole('OWNER'), async (req, res)
       updatedTopLevelKeys: Object.keys(cfg || {})
     }
   });
-  res.json({ ok: true, config: saved });
+  res.json({ ok: true, config: toAdminConfigPayload(saved) });
 });
 
 app.post('/api/admin/branding/upload', requireAuth, requireRole('OWNER'), brandingUpload.single('asset'), async (req, res) => {

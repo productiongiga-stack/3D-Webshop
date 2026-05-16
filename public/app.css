@@ -50,8 +50,8 @@
 .btn:disabled{opacity:.55;cursor:not-allowed}
 .btn-primary{background:var(--btn-bg);color:var(--btn-fg)}
 .btn-primary:hover:not(:disabled){background:var(--btn-bg-hover)}
-.app-main .btn-primary{background:linear-gradient(135deg, #4f46e5, #0284c7);color:#eff6ff;border-color:rgba(129,140,248,.45)}
-.app-main .btn-primary:hover:not(:disabled){background:linear-gradient(135deg, #6366f1, #0ea5e9)}
+.app-main .btn-primary{background:var(--brand-gradient);color:var(--brand-on-accent);border-color:color-mix(in srgb, var(--brand-accent) 45%, transparent);box-shadow:0 10px 24px color-mix(in srgb, var(--brand-accent) 18%, transparent)}
+.app-main .btn-primary:hover:not(:disabled){background:linear-gradient(135deg, var(--btn-bg-hover), var(--brand-accent-2));transform:translateY(-1px)}
 .btn-ghost{background:transparent;border-color:var(--border);color:var(--text)}
 .btn-ghost:hover:not(:disabled){border-color:var(--text)}
 .btn-danger{background:transparent;border-color:rgba(239,68,68,.3);color:#ef4444}
@@ -110,7 +110,7 @@
 .tabs{display:flex;gap:.35rem;background:var(--bg-card);border:1px solid var(--border);border-radius:99px;padding:.35rem;width:fit-content;margin-bottom:2rem}
 .tab{padding:.55rem 1.1rem;border-radius:99px;font-size:.82rem;font-weight:600;color:var(--text-2);border:none;background:transparent;cursor:pointer;transition:color .2s,background .2s}
 .tab:hover{color:var(--text)}
-.tab.active{background:linear-gradient(135deg, rgba(99,102,241,.32), rgba(14,165,233,.2));color:#eff6ff;box-shadow:inset 0 0 0 1px rgba(129,140,248,.45)}
+.tab.active{background:color-mix(in srgb, var(--brand-accent) 18%, var(--bg-card));color:var(--text);box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--brand-accent) 44%, var(--border))}
 .tab-panel{display:none;animation:appFadeIn .35s var(--ease)}
 .tab-panel.active{display:block}
 
@@ -143,7 +143,7 @@
     transition:background .18s,color .18s;
 }
 .stab:hover{background:var(--bg-card-h);color:var(--text)}
-.stab.active{background:linear-gradient(135deg, rgba(99,102,241,.32), rgba(14,165,233,.2));color:#eff6ff;font-weight:600;box-shadow:inset 0 0 0 1px rgba(129,140,248,.45)}
+.stab.active{background:color-mix(in srgb, var(--brand-accent) 18%, var(--bg-card));color:var(--text);font-weight:600;box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--brand-accent) 44%, var(--border))}
 .stab-panel{display:none}
 .stab-panel.active{display:block}
 
@@ -994,7 +994,7 @@ body.theme-light .stripe-badge.disconnected{color:#b91c1c}
 .orders-subtab-bar{display:flex;gap:.35rem;padding:.15rem 0 .6rem;border-bottom:1px solid var(--border);margin-bottom:.85rem}
 .orders-subtab{background:none;border:none;color:var(--text-2);font:inherit;font-size:.84rem;font-weight:500;padding:.45rem .85rem;border-radius:var(--r-btn);cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:.35rem}
 .orders-subtab:hover{background:var(--bg-2);color:var(--text)}
-.orders-subtab.active{background:linear-gradient(135deg, rgba(99,102,241,.32), rgba(14,165,233,.2));color:#eff6ff;font-weight:600;box-shadow:inset 0 0 0 1px rgba(129,140,248,.45)}
+.orders-subtab.active{background:color-mix(in srgb, var(--brand-accent) 18%, var(--bg-card));color:var(--text);font-weight:600;box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--brand-accent) 44%, var(--border))}
 .orders-subtab .notif-badge{font-size:.62rem;min-width:16px;height:16px;padding:0 4px;margin-left:.15rem}
 .orders-subtab-panel{display:none}
 .orders-subtab-panel.active{display:block}

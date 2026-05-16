@@ -245,15 +245,24 @@ const NEB = (() => {
       return user;
     },
 
-    initTheme() {
-      document.body.classList.remove('theme-light');
-      try { localStorage.removeItem('neb_theme'); } catch {}
+    themeModeFromConfig(cfg = window.NEB_CONFIG || {}) {
+      const raw = String(cfg?.theme?.themeMode || cfg?.theme?.mode || 'DARK').toUpperCase();
+      return raw === 'LIGHT' ? 'LIGHT' : 'DARK';
     },
 
-    setTheme() {
-      document.body.classList.remove('theme-light');
-      try { localStorage.removeItem('neb_theme'); } catch {}
-      if (window.NEB_CONFIG) this.applyBranding(window.NEB_CONFIG);
+    initTheme() {
+      const cfg = window.NEB_CONFIG || {};
+      this.setTheme(this.themeModeFromConfig(cfg), { applyBranding: false });
+    },
+
+    setTheme(mode = 'DARK', opts = {}) {
+      const normalized = String(mode || 'DARK').toUpperCase() === 'LIGHT' ? 'LIGHT' : 'DARK';
+      document.body.classList.toggle('theme-light', normalized === 'LIGHT');
+      if (window.NEB_CONFIG) {
+        window.NEB_CONFIG.theme = window.NEB_CONFIG.theme || {};
+        window.NEB_CONFIG.theme.themeMode = normalized;
+      }
+      if (opts.applyBranding !== false && window.NEB_CONFIG) this.applyBranding(window.NEB_CONFIG);
     },
 
     applyHeroVideo(cfg = {}) {
@@ -294,13 +303,17 @@ const NEB = (() => {
       const theme = cfg?.theme || {};
       const root = document.documentElement;
       const body = document.body;
+      const themeMode = this.themeModeFromConfig(cfg);
+      this.setTheme(themeMode, { applyBranding: false });
       const setVar = (name, value) => {
         root.style.setProperty(name, value);
         body?.style.setProperty(name, value);
       };
 
-      const accent = normalizeHex(theme.accentColor, '#ffffff');
-      const accent2 = normalizeHex(theme.accentColor2, '#bdbdbd');
+      let accent = normalizeHex(theme.accentColor, themeMode === 'LIGHT' ? '#111827' : '#ffffff');
+      let accent2 = normalizeHex(theme.accentColor2, themeMode === 'LIGHT' ? '#475569' : '#bdbdbd');
+      if (themeMode === 'LIGHT' && accent === '#ffffff') accent = '#111827';
+      if (themeMode === 'LIGHT' && accent2 === '#bdbdbd') accent2 = '#475569';
       const invoiceOpenBg = normalizeHex(theme.invoiceOpenBg, '#1d4ed8');
       const invoiceOpenText = normalizeHex(theme.invoiceOpenText, '#eff6ff');
       const invoiceDueBg = normalizeHex(theme.invoiceDueBg, '#f59e0b');
@@ -383,7 +396,7 @@ const NEB = (() => {
       const slot = document.querySelector('[data-theme-switch]');
       if (!slot) return;
       slot.innerHTML = '';
-      this.setTheme('dark');
+      this.setTheme(this.themeModeFromConfig(window.NEB_CONFIG || {}), { applyBranding: false });
     },
 
     async paintCart() {

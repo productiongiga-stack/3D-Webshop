@@ -205,6 +205,12 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
+CREATE TABLE IF NOT EXISTS user_sessions (
+  sid VARCHAR NOT NULL PRIMARY KEY,
+  sess JSON NOT NULL,
+  expire TIMESTAMP(6) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_expire ON user_sessions(expire);
 CREATE TABLE IF NOT EXISTS upload_blobs (
   path TEXT PRIMARY KEY,
   mime_type TEXT NOT NULL,
@@ -656,6 +662,7 @@ const DEFAULT_CONFIG = {
   },
   theme: {
     themePreset: 'CUSTOM',
+    themeMode: 'DARK',
     logoMark: '✦', logoPath: '', faviconPath: '',
     accentColor: '#ffffff', accentColor2: '#bdbdbd',
     headingFont: 'POPPINS', bodyFont: 'POPPINS',

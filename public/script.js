@@ -239,11 +239,12 @@ function _nebMain() {
     }
 
     // ── Theme init ──
-    state.theme = 'dark';
-    applyTheme('dark');
+    state.theme = String(window.NEB_CONFIG?.theme?.themeMode || 'DARK').toLowerCase();
+    applyTheme(state.theme);
 
     function applyTheme(theme) {
-        document.body.classList.remove('theme-light');
+        const mode = String(theme || 'dark').toUpperCase() === 'LIGHT' ? 'LIGHT' : 'DARK';
+        document.body.classList.toggle('theme-light', mode === 'LIGHT');
         // Ensure UI pieces that depend on theme stay readable
         updateActiveDesignLabel();
     }
