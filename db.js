@@ -191,6 +191,11 @@ CREATE TABLE IF NOT EXISTS deposit_invoices (
 
 // ── Schema init ───────────────────────────────────────────────────────────────
 async function initDatabase() {
+  if (IS_VERCEL && !USE_PG) {
+    throw new Error(
+      'DATABASE_URL ontbreekt op Vercel. Voeg een PostgreSQL-database toe (Neon/Vercel Postgres) en zet DATABASE_URL in Project → Settings → Environment Variables.'
+    );
+  }
   if (USE_PG) {
     await db.initSchema();
     await db.exec(`
@@ -492,8 +497,8 @@ async function getOrCreateSecret() {
     await db.prepare("INSERT INTO settings(key, value) VALUES('session_secret', $1) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(s);
     return s;
   }
-  // SQLite mode: filesystem
-  const DATA_DIR = path.join(__dirname, 'data');
+  // SQLite mode: filesystem (writable root on serverless)
+  const DATA_DIR = path.join(RUNTIME_ROOT, 'data');
   const SECRET_PATH = path.join(DATA_DIR, '.session-secret');
   try { const s = fs.readFileSync(SECRET_PATH, 'utf8').trim(); if (s) return s; } catch {}
   const s = crypto.randomBytes(48).toString('hex');
