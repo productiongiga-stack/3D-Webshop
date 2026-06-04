@@ -21,7 +21,7 @@ let pool;
 
 function getPool() {
   if (pool) return pool;
-  const connStr = process.env.DATABASE_URL;
+  const connStr = String(process.env.DATABASE_URL || '').trim();
   if (!connStr) throw new Error('DATABASE_URL environment variable is required for PostgreSQL mode');
 
   const max = Math.max(1, Math.min(8, Number(process.env.PG_POOL_MAX) || 2));

@@ -13,7 +13,7 @@ const bcrypt = require('bcryptjs');
 const { inferModelFormat } = require('./lib/model3d-format');
 const { sanitizePresentationFields } = require('./lib/model3d-presentation');
 
-const USE_PG = !!process.env.DATABASE_URL;
+const USE_PG = !!String(process.env.DATABASE_URL || '').trim();
 const IS_VERCEL = !!process.env.VERCEL;
 const RUNTIME_ROOT = IS_VERCEL ? '/tmp' : __dirname;
 
