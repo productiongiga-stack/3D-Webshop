@@ -1063,12 +1063,12 @@ function sanitizeProducts(products) {
         resolvedDesignerEnabled = defaultProduct.designerEnabled;
       }
     }
-    if (resolvedDesignerEnabled === true && !designerMockupPath) {
-      const defaultProduct = DEFAULT_CONFIG.products.find((d) => d.id === idBase);
-      if (defaultProduct?.designerEnabled === false) resolvedDesignerEnabled = false;
-    }
     if (resolvedDesignerEnabled === true || resolvedDesignerEnabled === false) row.designerEnabled = resolvedDesignerEnabled;
-    if (designerMockupPath) row.designerMockupPath = designerMockupPath;
+    if (designerMockupPath) {
+      row.designerMockupPath = designerMockupPath;
+    } else if (Object.prototype.hasOwnProperty.call(p || {}, 'designerMockupPath')) {
+      row.designerMockupPath = '';
+    }
     out.push(row);
   });
   const enabled = out.filter(p => p.enabled);

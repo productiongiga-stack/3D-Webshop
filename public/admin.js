@@ -5048,22 +5048,6 @@ function openProductModal(productIdx, draft, globalCfg, rerenderFn, persistFn = 
       extraDesignFeeMultiplier: isNew ? 1 : (draft.products[productIdx]?.extraDesignFeeMultiplier || 1),
     };
 
-    if (updated.isDefault) {
-      (draft.products || []).forEach((pp, i) => { if (i !== productIdx) pp.isDefault = false; });
-    }
-    if (updated.isFeatured) {
-      (draft.products || []).forEach((pp, i) => { if (i !== productIdx) pp.isFeatured = false; });
-    }
-
-    if (isNew) {
-      draft.products = normalizeProducts([...(draft.products || []), updated]);
-    } else {
-      draft.products[productIdx] = updated;
-      draft.products = normalizeProducts(draft.products);
-    }
-
-    const saveBtn = modal.querySelector('#prodModalSave');
-    const oldText = saveBtn?.textContent || (isNew ? 'Product aanmaken' : 'Opslaan');
     const previousId = isNew ? null : String(p?.id || updated.id || '').trim();
     try {
       if (saveBtn) {
@@ -5077,12 +5061,27 @@ function openProductModal(productIdx, draft, globalCfg, rerenderFn, persistFn = 
           previousId
         });
       } else {
+        if (updated.isDefault) {
+          (draft.products || []).forEach((pp, i) => { if (i !== productIdx) pp.isDefault = false; });
+        }
+        if (updated.isFeatured) {
+          (draft.products || []).forEach((pp, i) => { if (i !== productIdx) pp.isFeatured = false; });
+        }
+        if (isNew) {
+          draft.products = normalizeProducts([...(draft.products || []), updated]);
+        } else {
+          draft.products[productIdx] = updated;
+          draft.products = normalizeProducts(draft.products);
+        }
         NEB.toast(isNew ? 'Product aangemaakt (lokaal concept)' : 'Product opgeslagen (lokaal concept)', 'success');
       }
-    } catch {
+    } catch (err) {
       if (saveBtn) {
         saveBtn.disabled = false;
         saveBtn.textContent = oldText;
+      }
+      if (err?.data?.code !== 'POSTER_REQUIRED') {
+        NEB.toast(err?.data?.error || err?.message || 'Opslaan mislukt', 'error');
       }
       return;
     }
@@ -5931,7 +5930,7 @@ function bindSettings(cfg) {
         updateAllTemplateVersionUI();
         NEB.toast(successMsg, 'success');
       } catch (err) {
-        if (handlePersistError(err)) return;
+        if (handlePersistError(err)) throw err;
         throw err;
       }
       return;
