@@ -2927,10 +2927,18 @@ function readStoreMockupPathFromModal(modal) {
   return String(modal?.querySelector('#pmMockupPath')?.value || '').trim().replace(/^\/+/, '');
 }
 
-function effectiveDesignerMockupPathFromModal(modal) {
+function effectiveDesignerMockupPathFromModal(modal, baseProduct = null) {
   const designerPath = readDesignerMockupPathFromModal(modal);
   if (designerPath) return designerPath;
-  return readStoreMockupPathFromModal(modal);
+  const storePath = readStoreMockupPathFromModal(modal);
+  if (storePath) return storePath;
+  return String(baseProduct?.mockupPath || '').trim().replace(/^\/+/, '');
+}
+
+function readModel3dFieldFromModal(modal, baseProduct, field, selector) {
+  const fromModal = String(modal?.querySelector(selector)?.value || '').trim().replace(/^\/+/, '');
+  if (fromModal) return fromModal;
+  return String(baseProduct?.model3d?.[field] || '').trim().replace(/^\/+/, '');
 }
 
 function updateDesignerMockupPreview(modal) {
@@ -4943,7 +4951,8 @@ function openProductModal(productIdx, draft, globalCfg, rerenderFn, persistFn = 
     const name = (modal.querySelector('#pmName')?.value || '').trim();
     if (!name) { NEB.toast('Naam is verplicht', 'error'); return; }
 
-    const pmWarnings = window.AdminProduct3d?.collectPm3dWarnings?.(modal, isNew ? {} : draft.products[productIdx]) || [];
+    const baseProduct = isNew ? {} : (p || draft.products?.[productIdx] || {});
+    const pmWarnings = window.AdminProduct3d?.collectPm3dWarnings?.(modal, baseProduct) || [];
     if (pmWarnings.length) {
       NEB.toast(pmWarnings[0], 'error');
       refreshPm3dStatus(modal);
@@ -4998,13 +5007,25 @@ function openProductModal(productIdx, draft, globalCfg, rerenderFn, persistFn = 
 
     const designerEnabled = !!modal.querySelector('#pmDesignerEnabled')?.checked;
     const designerMockupPath = readDesignerMockupPathFromModal(modal);
-    if (designerEnabled && !effectiveDesignerMockupPathFromModal(modal)) {
+    const storeMockupPath = readStoreMockupPathFromModal(modal)
+      || String(baseProduct?.mockupPath || '').trim().replace(/^\/+/, '');
+    if (designerEnabled && !effectiveDesignerMockupPathFromModal(modal, baseProduct)) {
       NEB.toast('Designer vereist een mockup. Upload een designer mockup of stel de winkel-mockup in.', 'error');
       return;
     }
 
+    const modelPath = readModel3dFieldFromModal(modal, baseProduct, 'modelPath', '#pmModel3dPath');
+    const posterPath = readModel3dFieldFromModal(modal, baseProduct, 'posterPath', '#pmModel3dPoster');
+    const materialPath = readModel3dFieldFromModal(modal, baseProduct, 'materialPath', '#pmModel3dMaterial');
+    const resourceDir = (() => {
+      const explicit = readModel3dFieldFromModal(modal, baseProduct, 'resourceDir', '#pmModel3dResourceDir');
+      if (explicit) return explicit;
+      if (modelPath.includes('/')) return modelPath.slice(0, modelPath.lastIndexOf('/') + 1);
+      return String(baseProduct?.model3d?.resourceDir || '').trim().replace(/^\/+/, '');
+    })();
+
     const updated = {
-      ...(isNew ? {} : draft.products[productIdx]),
+      ...(isNew ? {} : (draft.products[productIdx] || baseProduct || {})),
       name,
       id: slugifyProductId((modal.querySelector('#pmId')?.value || '').trim() || name),
       description: (modal.querySelector('#pmDesc')?.value || '').trim(),
@@ -5014,30 +5035,25 @@ function openProductModal(productIdx, draft, globalCfg, rerenderFn, persistFn = 
       basePrice: Number.isFinite(basePriceRaw) ? basePriceRaw : null,
       extraDesignFee: Number.isFinite(extraFeeRaw) ? extraFeeRaw : null,
       sortOrder: Number.isFinite(sortOrderRaw) ? Math.max(0, Math.min(9999, sortOrderRaw)) : 10,
-      mockupPath: (modal.querySelector('#pmMockupPath')?.value || '').trim() || 'assets/tshirt_mockup.png',
+      mockupPath: storeMockupPath || 'assets/tshirt_mockup.png',
       designerEnabled,
       designerMockupPath,
       model3d: {
+        ...(baseProduct?.model3d && typeof baseProduct.model3d === 'object' ? baseProduct.model3d : {}),
         enabled: !!modal.querySelector('#pmModel3dEnabled')?.checked,
-        format: modal.querySelector('#pmModel3dFormat')?.value || 'glb',
-        quality: modal.querySelector('#pmModel3dQuality')?.value || 'high',
-        modelPath: (modal.querySelector('#pmModel3dPath')?.value || '').trim().replace(/^\/+/, ''),
-        resourceDir: (() => {
-          const explicit = (modal.querySelector('#pmModel3dResourceDir')?.value || '').trim().replace(/^\/+/, '');
-          const modelPath = (modal.querySelector('#pmModel3dPath')?.value || '').trim().replace(/^\/+/, '');
-          if (explicit) return explicit;
-          if (modelPath.includes('/')) return modelPath.slice(0, modelPath.lastIndexOf('/') + 1);
-          return '';
-        })(),
-        materialPath: (modal.querySelector('#pmModel3dMaterial')?.value || '').trim().replace(/^\/+/, ''),
-        posterPath: (modal.querySelector('#pmModel3dPoster')?.value || '').trim().replace(/^\/+/, ''),
-        scale: Math.min(20, Math.max(0.01, Number(modal.querySelector('#pmModel3dScale')?.value || 1) || 1)),
+        format: modal.querySelector('#pmModel3dFormat')?.value || baseProduct?.model3d?.format || 'glb',
+        quality: modal.querySelector('#pmModel3dQuality')?.value || baseProduct?.model3d?.quality || 'high',
+        modelPath,
+        resourceDir,
+        materialPath,
+        posterPath,
+        scale: Math.min(20, Math.max(0.01, Number(modal.querySelector('#pmModel3dScale')?.value || baseProduct?.model3d?.scale || 1) || 1)),
         rotationX: 0,
-        rotationY: Number(modal.querySelector('#pmModel3dRotY')?.value || 0) || 0,
+        rotationY: Number(modal.querySelector('#pmModel3dRotY')?.value || baseProduct?.model3d?.rotationY || 0) || 0,
         rotationZ: 0,
         autoRotate: !!modal.querySelector('#pmModel3dAutoRotate')?.checked,
-        rotateSpeed: Math.min(3, Math.max(0, Number(modal.querySelector('#pmModel3dRotateSpeed')?.value ?? 0.42) || 0)),
-        ...readPm3dPresentationFields(modal, isNew ? {} : (draft.products[productIdx]?.model3d || {}))
+        rotateSpeed: Math.min(3, Math.max(0, Number(modal.querySelector('#pmModel3dRotateSpeed')?.value ?? baseProduct?.model3d?.rotateSpeed ?? 0.42) || 0)),
+        ...readPm3dPresentationFields(modal, isNew ? {} : (baseProduct?.model3d || {}))
       },
       colorHexes: selectedColors,
       colorPrices,
@@ -5087,7 +5103,7 @@ function openProductModal(productIdx, draft, globalCfg, rerenderFn, persistFn = 
     }
 
     closeModal();
-    rerenderFn();
+    rerenderFn({ skipCapture: true });
   });
 }
 
@@ -5894,6 +5910,11 @@ function bindSettings(cfg) {
     const saved = out?.config || out;
     if (!saved || typeof saved !== 'object') return;
     const clone = JSON.parse(JSON.stringify(saved));
+    if (out?.product?.id) {
+      const pid = String(out.product.id || '').trim();
+      const idx = (clone.products || []).findIndex((row) => String(row?.id || '') === pid);
+      if (idx >= 0) clone.products[idx] = { ...clone.products[idx], ...out.product };
+    }
     clone.products = normalizeProducts(clone.products || []);
     Object.keys(draft).forEach((key) => { delete draft[key]; });
     Object.assign(draft, clone);
@@ -6385,8 +6406,8 @@ function bindSettings(cfg) {
 
   updateAllTemplateVersionUI();
 
-  function rerender() {
-    captureFlatFields();
+  function rerender(opts = {}) {
+    if (!opts.skipCapture) captureFlatFields();
     wrap.innerHTML = renderSettings(draft);
     bindSettings(draft);
     applySettingsSubTab(CURRENT_SETTINGS_STAB);

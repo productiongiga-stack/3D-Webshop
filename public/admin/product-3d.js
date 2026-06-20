@@ -7,14 +7,21 @@
     return m ? `#${m[1].toLowerCase()}` : '';
   }
 
+  function readPm3dField(modal, draftProduct, field, selector) {
+    const fromModal = String(modal?.querySelector(selector)?.value || '').trim();
+    if (fromModal) return fromModal;
+    const fromDraft = String(draftProduct?.model3d?.[field] || '').trim();
+    return fromDraft;
+  }
+
   function collectPm3dWarnings(modal, draftProduct) {
     const warnings = [];
     const name = (modal.querySelector('#pmName')?.value || draftProduct?.name || '').trim();
     const id = (modal.querySelector('#pmId')?.value || draftProduct?.id || '').trim().toLowerCase();
     const mockupPath = (modal.querySelector('#pmMockupPath')?.value || draftProduct?.mockupPath || '').trim().toLowerCase();
     const enabled = !!modal.querySelector('#pmModel3dEnabled')?.checked;
-    const modelPath = (modal.querySelector('#pmModel3dPath')?.value || '').trim();
-    const posterPath = (modal.querySelector('#pmModel3dPoster')?.value || '').trim();
+    const modelPath = readPm3dField(modal, draftProduct, 'modelPath', '#pmModel3dPath');
+    const posterPath = readPm3dField(modal, draftProduct, 'posterPath', '#pmModel3dPoster');
 
     if (!name) warnings.push('Productnaam is verplicht.');
     if (enabled && !modelPath) warnings.push('3D is ingeschakeld maar er is geen model geüpload.');
