@@ -13,7 +13,7 @@ if (document.readyState === 'loading') {
 } else {
     _nebInitWhenReady();
 }
-async function _nebMain() {
+function _nebMain() {
 
     // ── Pre-fill order form for logged-in users ──
     const _u = window.NEB_USER;
@@ -32,9 +32,9 @@ async function _nebMain() {
         step: 1,
         color: '#f2f2f2',
         colorName: 'Wit',
-        productId: 'tshirt',
+        productId: 'led-lichtbak-a4',
         productName: 'Product',
-        productMockupPath: 'assets/tshirt_mockup.png',
+        productMockupPath: 'assets/products/digitify/led-lichtbak-a4/led-lichtbak-a4-mock.png',
         productPriceMultiplier: 1,
         productExtraFeeMultiplier: 1,
         // Defaults for new layers
@@ -44,15 +44,14 @@ async function _nebMain() {
         qty: 1,
         price: 34.95,
         vOffset: 0,
-        theme: 'dark',
+        theme: 'light',
         // Multiple designs (layers)
         layers: [],
         activeLayerId: null
     };
     const DESIGNER_DRAFT_KEY = 'neb_designer_draft_v1';
-    const DESIGNER_FILES_DB = 'neb_designer_files_v1';
-    const DESIGNER_FILES_STORE = 'blobs';
     const ALLOWED_POSITIONS = new Set(['top', 'center', 'bottom', 'full', 'leftchest', 'rightchest']);
+    const requestedProductId = new URLSearchParams(window.location.search).get('product');
     let restoringDraft = false;
 
     // Automatic placement tweaks per size (subtle, realistic changes).
@@ -129,93 +128,6 @@ async function _nebMain() {
 
     function clearDesignerDraft() {
         try { sessionStorage.removeItem(DESIGNER_DRAFT_KEY); } catch {}
-        clearDesignerFilesDb().catch(() => {});
-    }
-
-    function openDesignerFilesDb() {
-        return new Promise((resolve, reject) => {
-            if (!window.indexedDB) return reject(new Error('IndexedDB unavailable'));
-            const req = indexedDB.open(DESIGNER_FILES_DB, 1);
-            req.onupgradeneeded = () => {
-                const idb = req.result;
-                if (!idb.objectStoreNames.contains(DESIGNER_FILES_STORE)) {
-                    idb.createObjectStore(DESIGNER_FILES_STORE, { keyPath: 'layerId' });
-                }
-            };
-            req.onsuccess = () => resolve(req.result);
-            req.onerror = () => reject(req.error);
-        });
-    }
-
-    async function saveDesignerFileBlob(layerId, file) {
-        if (!layerId || !file || !window.indexedDB) return;
-        try {
-            const idb = await openDesignerFilesDb();
-            await new Promise((resolve, reject) => {
-                const tx = idb.transaction(DESIGNER_FILES_STORE, 'readwrite');
-                tx.objectStore(DESIGNER_FILES_STORE).put({
-                    layerId,
-                    blob: file,
-                    name: file.name,
-                    type: file.type,
-                    bytes: file.size,
-                    savedAt: Date.now()
-                });
-                tx.oncomplete = () => resolve();
-                tx.onerror = () => reject(tx.error);
-            });
-            idb.close();
-        } catch { /* quota or private mode */ }
-    }
-
-    async function loadDesignerFileBlob(layerId) {
-        if (!layerId || !window.indexedDB) return null;
-        try {
-            const idb = await openDesignerFilesDb();
-            const rec = await new Promise((resolve, reject) => {
-                const tx = idb.transaction(DESIGNER_FILES_STORE, 'readonly');
-                const req = tx.objectStore(DESIGNER_FILES_STORE).get(layerId);
-                req.onsuccess = () => resolve(req.result || null);
-                req.onerror = () => reject(req.error);
-            });
-            idb.close();
-            return rec;
-        } catch {
-            return null;
-        }
-    }
-
-    async function clearDesignerFilesDb() {
-        if (!window.indexedDB) return;
-        try {
-            const idb = await openDesignerFilesDb();
-            await new Promise((resolve, reject) => {
-                const tx = idb.transaction(DESIGNER_FILES_STORE, 'readwrite');
-                tx.objectStore(DESIGNER_FILES_STORE).clear();
-                tx.oncomplete = () => resolve();
-                tx.onerror = () => reject(tx.error);
-            });
-            idb.close();
-        } catch {}
-    }
-
-    function showDesignerDraftBanner(missingNames) {
-        let el = document.getElementById('designerDraftBanner');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'designerDraftBanner';
-            el.className = 'designer-draft-banner';
-            el.setAttribute('role', 'status');
-            const host = document.querySelector('.designer-panel') || document.querySelector('main');
-            host?.prepend(el);
-        }
-        if (!missingNames?.length) {
-            el.hidden = true;
-            el.textContent = '';
-            return;
-        }
-        el.hidden = false;
-        el.innerHTML = `<strong>Concept hersteld.</strong> Upload opnieuw voor: ${missingNames.map((n) => `<em>${String(n).replace(/</g, '')}</em>`).join(', ')}. Bestanden worden lokaal bewaard waar mogelijk (IndexedDB).`;
     }
 
     function touchDesignerDraft() {
@@ -317,6 +229,8 @@ async function _nebMain() {
     let previewRefreshRaf = 0;
 
     // Theme toggle
+    const themeDarkBtn = $('#themeDark');
+    const themeLightBtn = $('#themeLight');
 
     const isMobileLayout = window.matchMedia('(max-width: 700px)').matches;
     const isCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
@@ -328,12 +242,27 @@ async function _nebMain() {
     }
 
     // ── Theme init ──
-    state.theme = String(window.NEB_CONFIG?.theme?.themeMode || 'DARK').toLowerCase();
+    const savedTheme = localStorage.getItem('neb_theme');
+    if (savedTheme === 'light' || savedTheme === 'dark') {
+        state.theme = savedTheme;
+    }
     applyTheme(state.theme);
 
+    themeDarkBtn?.addEventListener('click', () => {
+        state.theme = 'dark';
+        applyTheme('dark');
+        localStorage.setItem('neb_theme', 'dark');
+    });
+    themeLightBtn?.addEventListener('click', () => {
+        state.theme = 'light';
+        applyTheme('light');
+        localStorage.setItem('neb_theme', 'light');
+    });
+
     function applyTheme(theme) {
-        const mode = String(theme || 'dark').toUpperCase() === 'LIGHT' ? 'LIGHT' : 'DARK';
-        document.body.classList.toggle('theme-light', mode === 'LIGHT');
+        document.body.classList.toggle('theme-light', theme === 'light');
+        themeDarkBtn?.classList.toggle('active', theme === 'dark');
+        themeLightBtn?.classList.toggle('active', theme === 'light');
         // Ensure UI pieces that depend on theme stay readable
         updateActiveDesignLabel();
     }
@@ -342,14 +271,26 @@ async function _nebMain() {
         return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
     }
 
+    function assetHasMockName(rawPath) {
+        const normalized = String(rawPath || '').trim().replace(/^\/+/, '');
+        if (!normalized) return false;
+        const filename = normalized.split('/').pop().replace(/\.[^.]+$/, '');
+        return /\bmock\b/i.test(filename);
+    }
+
+    function isEditableProduct(product) {
+        return assetHasMockName(product?.mockupPath)
+            || Object.values(product?.colorData || {}).some((entry) => assetHasMockName(entry?.mockupPath));
+    }
+
     function getCatalogProducts() {
         const cfgProducts = Array.isArray(_cfg().products) ? _cfg().products : [];
-        const enabled = cfgProducts.filter(p => p && p.enabled !== false);
+        const enabled = cfgProducts.filter(p => p && p.enabled !== false && isEditableProduct(p));
         if (enabled.length) return enabled;
         return [{
-            id: 'tshirt',
-            name: 'Product',
-            description: 'Professioneel marketingmateriaal',
+            id: 'fallback-product',
+            name: 'Product met mockup',
+            description: 'Geen bewerkbare mockup gevonden in de catalogus.',
             mockupPath: 'assets/tshirt_mockup.png',
             priceMultiplier: 1,
             extraDesignFeeMultiplier: 1,
@@ -506,7 +447,7 @@ async function _nebMain() {
         const path = String(p?.mockupPath || state.productMockupPath || 'assets/tshirt_mockup.png').trim().replace(/^\/+/, '');
         const src = '/' + (path || 'assets/tshirt_mockup.png');
         activeProductBadge.innerHTML = `
-            <img class="apb-thumb" src="${escapeHtml(src)}" alt="${escapeHtml(name)}" onerror="this.onerror=null;this.src='/assets/tshirt_mockup.png';">
+            <img class="apb-thumb" src="${escapeHtml(src)}" alt="${escapeHtml(name)}">
             <div class="apb-copy">
                 <span class="apb-label">Geselecteerd product</span>
                 <strong class="apb-name">${escapeHtml(name)}</strong>
@@ -533,7 +474,7 @@ async function _nebMain() {
                 const price = Math.max(0, Number(_cfg().pricing?.basePrice || 0) * mul);
                 return `
                     <button class="product-card" type="button" data-product-id="${id}" role="radio" aria-checked="false" title="${escapeHtml(String(p.name || 'Product'))}">
-                        <span class="pc-media"><img src="${escapeHtml(safePath(p.mockupPath))}" alt="${escapeHtml(String(p.name || 'Product'))}" onerror="this.onerror=null;this.src='/assets/tshirt_mockup.png';"></span>
+                        <span class="pc-media"><img src="${escapeHtml(safePath(p.mockupPath))}" alt="${escapeHtml(String(p.name || 'Product'))}"></span>
                         <span class="pc-name">${escapeHtml(String(p.name || 'Product'))}</span>
                         <span class="pc-meta">${escapeHtml(fmtEUR(price))}${mul !== 1 ? ` · x${mul.toFixed(2)}` : ''}</span>
                     </button>
@@ -605,22 +546,14 @@ async function _nebMain() {
     btnAddMoreFiles?.addEventListener('click', () => fileInput?.click());
     renderStep2LayerList();
 
-    let isProcessingFiles = false;
-    async function handleFiles(files) {
-        if (isProcessingFiles) return showToast('Upload bezig, even wachten...');
+    function handleFiles(files) {
         const valid = files.filter(f => f && f.type && f.type.startsWith('image/'));
         if (!valid.length) return showToast('Alleen afbeeldingen toegestaan');
 
         const tooBig = valid.find(f => f.size > 10 * 1024 * 1024);
         if (tooBig) return showToast('Bestand te groot (max 10MB)');
-        isProcessingFiles = true;
-        try {
-            for (const file of valid) {
-                await addLayerFromFile(file);
-            }
-        } finally {
-            isProcessingFiles = false;
-        }
+
+        valid.forEach(addLayerFromFile);
     }
 
     function formatSize(bytes) {
@@ -644,21 +577,22 @@ async function _nebMain() {
         });
     }
 
-    async function addLayerFromFile(file) {
-            const objectUrl = URL.createObjectURL(file);
+    function addLayerFromFile(file) {
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            const dataUrl = e.target.result;
+
             let img;
             try {
-                img = await loadDesignImage(objectUrl);
+                img = await loadDesignImage(dataUrl);
             } catch {
-                URL.revokeObjectURL(objectUrl);
-                showToast('Kon afbeelding niet laden');
-                return;
+                return showToast('Kon afbeelding niet laden');
             }
 
             const missingActive = getActiveLayer();
             if (missingActive?.needsFile) {
                 missingActive.file = file;
-                missingActive.dataUrl = '';
+                missingActive.dataUrl = dataUrl;
                 missingActive.img = img;
                 missingActive.bytes = file.size;
                 missingActive.name = file.name || missingActive.name;
@@ -679,10 +613,7 @@ async function _nebMain() {
                 setActiveLayer(missingActive.id);
                 updatePricingUI();
                 touchDesignerDraft();
-                saveDesignerFileBlob(missingActive.id, file);
-                showToast('Design opnieuw gekoppeld');
-                URL.revokeObjectURL(objectUrl);
-                return;
+                return showToast('Design opnieuw gekoppeld');
             }
 
             const id = uid();
@@ -692,7 +623,7 @@ async function _nebMain() {
                 name: file.name,
                 bytes: file.size,
                 file,
-                dataUrl: '',
+                dataUrl,
                 img,
                 needsFile: false,
                 position: 'center',
@@ -724,9 +655,9 @@ async function _nebMain() {
             btnNext.disabled = state.layers.length === 0;
             btnNextText.textContent = state.layers.length ? 'Ga verder' : 'Upload eerst je design';
             touchDesignerDraft();
-            saveDesignerFileBlob(id, file);
             showToast('Design toegevoegd!');
-            URL.revokeObjectURL(objectUrl);
+        };
+        reader.readAsDataURL(file);
     }
 
     // ── Pricing (config-driven) ──
@@ -1035,7 +966,7 @@ async function _nebMain() {
         showToast('Ontwerp verwijderd');
     }
 
-    async function restoreDesignerDraft() {
+    function restoreDesignerDraft() {
         let parsed = null;
         try {
             parsed = JSON.parse(sessionStorage.getItem(DESIGNER_DRAFT_KEY) || 'null');
@@ -1048,6 +979,7 @@ async function _nebMain() {
         state.color = String(parsed.color || state.color);
         state.colorName = String(parsed.colorName || state.colorName);
         state.productId = String(parsed.productId || state.productId || 'tshirt');
+        if (requestedProductId) state.productId = String(requestedProductId);
         state.size = String(parsed.size || state.size);
         state.qty = Math.round(clamp(parsed.qty, 1, 99, state.qty));
 
@@ -1087,39 +1019,6 @@ async function _nebMain() {
         goToStep(1);
         restoringDraft = false;
         updatePricingUI();
-
-        const stillMissing = [];
-        for (const layer of state.layers) {
-            if (!layer.needsFile) continue;
-            const rec = await loadDesignerFileBlob(layer.id);
-            if (!rec?.blob) {
-                stillMissing.push(layer.name);
-                continue;
-            }
-            try {
-                const file = new File([rec.blob], rec.name || 'design.png', { type: rec.type || 'image/png' });
-                const objectUrl = URL.createObjectURL(file);
-                const img = await loadDesignImage(objectUrl);
-                URL.revokeObjectURL(objectUrl);
-                layer.file = file;
-                layer.img = img;
-                layer.bytes = file.size;
-                layer.needsFile = false;
-                if (!layer.canvas) {
-                    const canvas = document.createElement('canvas');
-                    canvas.className = 'design-canvas';
-                    canvas.dataset.layerId = layer.id;
-                    layer.canvas = canvas;
-                    layerStack?.appendChild(canvas);
-                }
-                renderLayer(layer);
-            } catch {
-                stillMissing.push(layer.name);
-            }
-        }
-        if (stillMissing.length) showDesignerDraftBanner(stillMissing);
-        else showDesignerDraftBanner([]);
-        btnNext.disabled = state.layers.some((l) => !l.file || l.needsFile);
         return true;
     }
 
@@ -1386,62 +1285,32 @@ async function _nebMain() {
     });
 
     function updateLayerPosition(layer) {
-        const layout = getLayerLayout(layer, 1);
+        const pos = positionMap[layer.position] || positionMap.center;
+        const scaleFactor = (layer.scale || 100) / 100;
+        const adj = getSizeAdj();
+
+        // Apply size-based adjustments (very subtle) + user fine-tune (px)
+        const topPct = pos.top + (adj.top || 0);
+        const wPct = Math.max(8, (pos.w + (adj.w || 0)) * scaleFactor);
+        const translate = `translate(-50%,-50%) translateX(${layer.xOffset || 0}px) translateY(${layer.vOffset || 0}px)`;
 
         // Position this layer canvas
         if (layer.canvas) {
-            layer.canvas.style.left = layout.leftPct + '%';
-            layer.canvas.style.top = layout.topPct + '%';
-            layer.canvas.style.width = layout.widthPct + '%';
+            layer.canvas.style.left = pos.left + '%';
+            layer.canvas.style.top = topPct + '%';
+            layer.canvas.style.width = wPct + '%';
             layer.canvas.style.height = 'auto';
-            layer.canvas.style.transform = layout.transform;
+            layer.canvas.style.transform = translate;
         }
 
         // Placeholder follows the active layer mapping
         if (designPlaceholder && state.layers.length === 0) {
-            designPlaceholder.style.left = layout.leftPct + '%';
-            designPlaceholder.style.top = layout.topPct + '%';
-            designPlaceholder.style.width = layout.widthPct + '%';
-            designPlaceholder.style.transform = layout.transform;
+            designPlaceholder.style.left = pos.left + '%';
+            designPlaceholder.style.top = topPct + '%';
+            designPlaceholder.style.width = wPct + '%';
+            designPlaceholder.style.transform = translate;
         }
         schedulePreviewModalRefresh();
-    }
-    function normalizeOffsetScale(offsetScale = 1) {
-        if (offsetScale && typeof offsetScale === 'object') {
-            return {
-                x: Number(offsetScale.x) || 1,
-                y: Number(offsetScale.y) || 1
-            };
-        }
-        const scalar = Number(offsetScale) || 1;
-        return { x: scalar, y: scalar };
-    }
-
-    function getLayerLayout(layer, offsetScale = 1) {
-        const pos = positionMap[layer.position] || positionMap.center;
-        const scaleFactor = (layer.scale || 100) / 100;
-        const adj = getSizeAdj();
-        const topPct = pos.top + (adj.top || 0);
-        const widthPct = Math.max(8, (pos.w + (adj.w || 0)) * scaleFactor);
-        const scale = normalizeOffsetScale(offsetScale);
-        const xPx = Math.round((layer.xOffset || 0) * scale.x);
-        const yPx = Math.round((layer.vOffset || 0) * scale.y);
-        const transform = `translate(-50%,-50%) translateX(${xPx}px) translateY(${yPx}px)`;
-        return { leftPct: pos.left, topPct, widthPct, xPx, yPx, transform };
-    }
-
-    function getLiveLayerMetrics(layer) {
-        const sourceRect = tshirt3d?.getBoundingClientRect();
-        const layerRect = layer?.canvas?.getBoundingClientRect();
-        if (!sourceRect || !layerRect || !sourceRect.width || !sourceRect.height) return null;
-        return {
-            left: layerRect.left - sourceRect.left,
-            top: layerRect.top - sourceRect.top,
-            width: layerRect.width,
-            height: layerRect.height,
-            sourceWidth: sourceRect.width,
-            sourceHeight: sourceRect.height
-        };
     }
 
     // ── Vertical fine-tuning ──
@@ -1623,18 +1492,7 @@ async function _nebMain() {
             if (maskUrl) productPreviewTint.style.setProperty('--mockup-mask-url', maskUrl);
         }
         if (productPreviewTshirt && tshirt3d) {
-            const sourceRect = tshirt3d.getBoundingClientRect();
-            const targetRect = productPreviewCanvas?.getBoundingClientRect();
-            const fitScale = (sourceRect.width && sourceRect.height && targetRect?.width && targetRect?.height)
-                ? Math.min((targetRect.width * 0.92) / sourceRect.width, (targetRect.height * 0.92) / sourceRect.height)
-                : 1;
-            const baseTransform = tshirt3d.style.transform && tshirt3d.style.transform !== 'none'
-                ? tshirt3d.style.transform
-                : 'perspective(1000px) rotateX(0deg) rotateY(0deg)';
-            productPreviewTshirt.style.width = Math.round(sourceRect.width) + 'px';
-            productPreviewTshirt.style.height = Math.round(sourceRect.height) + 'px';
-            productPreviewTshirt.style.transform = `${baseTransform} scale(${Number.isFinite(fitScale) ? fitScale : 1})`;
-            productPreviewTshirt.style.transformOrigin = 'center center';
+            productPreviewTshirt.style.transform = tshirt3d.style.transform || 'perspective(1000px) rotateX(0deg) rotateY(0deg)';
         }
         refreshPreviewLayers();
     }
@@ -1732,45 +1590,29 @@ async function _nebMain() {
 
         // Convert UI px offsets to natural image px offsets
         const rect = tshirt3d?.getBoundingClientRect();
-        const scalePx = rect && rect.width && rect.height
-            ? { x: baseW / rect.width, y: baseH / rect.height }
-            : 1;
+        const scalePx = rect && rect.width ? (baseW / rect.width) : 1;
 
         // Draw each design layer in the same order as the live preview
         for (const layer of (state.layers || [])) {
+            const pos = positionMap[layer.position] || positionMap.center;
+            const adj = getSizeAdj();
+            const scaleFactor = (layer.scale || 100) / 100;
+
+            const topPct = pos.top + (adj.top || 0);
+            const wPct = Math.max(8, (pos.w + (adj.w || 0)) * scaleFactor);
+
+            const w = baseW * (wPct / 100);
+            const h = w; // square canvas for the design
+            const cx = baseW * (pos.left / 100);
+            const cy = baseH * (topPct / 100);
+
+            const x = (cx - w / 2) + ((layer.xOffset || 0) * scalePx);
+            const y = (cy - h / 2) + ((layer.vOffset || 0) * scalePx);
+
             // Use the already-rendered layer canvas (1024x1024)
             if (layer.canvas) {
-                const liveMetrics = getLiveLayerMetrics(layer);
-                if (liveMetrics) {
-                    ctx.drawImage(
-                        layer.canvas,
-                        liveMetrics.left * scalePx.x,
-                        liveMetrics.top * scalePx.y,
-                        liveMetrics.width * scalePx.x,
-                        liveMetrics.height * scalePx.y
-                    );
-                    continue;
-                }
-                const layout = getLayerLayout(layer, scalePx);
-                const w = baseW * (layout.widthPct / 100);
-                const sourceWidth = layer.canvas.width || 1;
-                const sourceHeight = layer.canvas.height || sourceWidth;
-                const h = w * (sourceHeight / Math.max(1, sourceWidth));
-                const cx = baseW * (layout.leftPct / 100);
-                const cy = baseH * (layout.topPct / 100);
-                const x = (cx - w / 2) + layout.xPx;
-                const y = (cy - h / 2) + layout.yPx;
                 ctx.drawImage(layer.canvas, x, y, w, h);
             } else if (layer.img) {
-                const layout = getLayerLayout(layer, scalePx);
-                const w = baseW * (layout.widthPct / 100);
-                const sourceWidth = layer.img.naturalWidth || layer.img.width || 1;
-                const sourceHeight = layer.img.naturalHeight || layer.img.height || sourceWidth;
-                const h = w * (sourceHeight / Math.max(1, sourceWidth));
-                const cx = baseW * (layout.leftPct / 100);
-                const cy = baseH * (layout.topPct / 100);
-                const x = (cx - w / 2) + layout.xPx;
-                const y = (cy - h / 2) + layout.yPx;
                 ctx.drawImage(layer.img, x, y, w, h);
             }
         }
@@ -1935,7 +1777,7 @@ async function placeOrder() {
             return;
         }
         if (!state.layers?.length) return showToast('Upload eerst je design');
-        if (state.layers.some(l => !l.file || l.needsFile)) {
+        if (state.layers.some(l => !l.file || !l.dataUrl || l.needsFile)) {
             showToast('Na refresh moet je je design-bestanden opnieuw uploaden');
             goToStep(1);
             return;
@@ -1957,7 +1799,6 @@ async function placeOrder() {
             total: calcUnitPrice() * state.qty
         };
         const designs = (state.layers || []).map(l => ({
-            id: l.id,
             name: l.name, position: l.position, scale: l.scale,
             vOffset: l.vOffset, xOffset: l.xOffset || 0,
             note: l.note || ''
@@ -1966,14 +1807,13 @@ async function placeOrder() {
         const formData = new FormData();
         formData.append('product', JSON.stringify(product));
         formData.append('designs', JSON.stringify(designs));
-        formData.append('notes', ($('#remarksInput')?.value || '').trim());
+        formData.append('notes', '');
         if (previewDataUrl) {
             const previewBlob = dataUrlToBlob(previewDataUrl);
             if (previewBlob) formData.append('preview', previewBlob, 'preview.png');
         }
         (state.layers || []).forEach((l, idx) => {
             if (l.file) {
-                formData.append('designFileLayerIds', l.id);
                 formData.append('designFiles', l.file, l.file.name || `design-${idx + 1}.png`);
             }
         });
@@ -2258,7 +2098,7 @@ async function placeOrder() {
             const id = escapeHtml(String(p.id || ''));
             const desc = String(p.description || 'Premium kwaliteit bedrukking.').trim();
             return `<button class="hp-product-card reveal" data-product-id="${id}" type="button">
-                <div class="hp-pc-media"><img src="${escapeHtml(safePath(p.mockupPath))}" alt="${escapeHtml(String(p.name || ''))}" onerror="this.onerror=null;this.src='/assets/tshirt_mockup.png';"></div>
+                <div class="hp-pc-media"><img src="${escapeHtml(safePath(p.mockupPath))}" alt="${escapeHtml(String(p.name || ''))}"></div>
                 <div class="hp-pc-body">
                     <h3 class="hp-pc-name">${escapeHtml(String(p.name || 'Product'))}</h3>
                     <p class="hp-pc-desc">${escapeHtml(desc)}</p>
@@ -2297,70 +2137,13 @@ async function placeOrder() {
     window.addEventListener('pagehide', () => clearDesignerDraft());
 
     // Initial position / draft restore
-    if (['localhost', '127.0.0.1'].includes(location.hostname)) {
-        window.__NEB_DESIGNER_DEBUG__ = {
-            async injectSyntheticFiles(specs = []) {
-                if (!Array.isArray(specs) || !specs.length) return false;
-                const files = specs.map((spec, idx) => {
-                    const w = Math.max(100, Number(spec.w) || 1200);
-                    const h = Math.max(100, Number(spec.h) || 1200);
-                    const bg = String(spec.bg || '#334155');
-                    const label = String(spec.label || `TEST ${idx + 1}`).slice(0, 24);
-                    const svg = `<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="100%" height="100%" fill="${bg}"/><rect x="${Math.round(w * 0.08)}" y="${Math.round(h * 0.08)}" width="${Math.round(w * 0.84)}" height="${Math.round(h * 0.84)}" rx="28" fill="none" stroke="#ffffff" stroke-width="18"/><circle cx="${Math.round(w / 2)}" cy="${Math.round(h / 2)}" r="${Math.round(Math.min(w, h) * 0.18)}" fill="#ffffff" fill-opacity="0.28"/><text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="84" fill="#ffffff">${label}</text></svg>`;
-                    const blob = new Blob([svg], { type: 'image/svg+xml' });
-                    Object.defineProperty(blob, 'name', { value: String(spec.name || `debug-${idx + 1}.svg`) });
-                    return blob;
-                });
-                await handleFiles(files);
-                return true;
-            },
-            getLivePreviewMetrics() {
-                const parent = tshirt3d?.getBoundingClientRect();
-                return (state.layers || []).map((layer, idx) => {
-                    const rect = layer?.canvas?.getBoundingClientRect();
-                    if (!parent || !rect || !parent.width || !parent.height) return { idx, id: layer?.id || idx, missing: true };
-                    return {
-                        idx,
-                        id: layer?.id || idx,
-                        left: Number((((rect.left - parent.left) / parent.width) * 100).toFixed(2)),
-                        top: Number((((rect.top - parent.top) / parent.height) * 100).toFixed(2)),
-                        width: Number(((rect.width / parent.width) * 100).toFixed(2)),
-                        height: Number(((rect.height / parent.height) * 100).toFixed(2))
-                    };
-                });
-            },
-            getModalPreviewMetrics() {
-                const parent = productPreviewTshirt?.getBoundingClientRect();
-                return Array.from(productPreviewLayerStack?.querySelectorAll('.preview-modal-layer') || []).map((layer, idx) => {
-                    const rect = layer.getBoundingClientRect();
-                    if (!parent || !rect || !parent.width || !parent.height) return { idx, missing: true };
-                    return {
-                        idx,
-                        left: Number((((rect.left - parent.left) / parent.width) * 100).toFixed(2)),
-                        top: Number((((rect.top - parent.top) / parent.height) * 100).toFixed(2)),
-                        width: Number(((rect.width / parent.width) * 100).toFixed(2)),
-                        height: Number(((rect.height / parent.height) * 100).toFixed(2))
-                    };
-                });
-            },
-            async openPreviewAndMeasure() {
-                openProductPreviewModal();
-                await new Promise(resolve => setTimeout(resolve, 300));
-                return {
-                    live: this.getLivePreviewMetrics(),
-                    modal: this.getModalPreviewMetrics()
-                };
-            },
-            clearAll() {
-                resetDesigner();
-            }
-        };
-    }
+    renderProductSelector();
     renderHomepageProducts();
     applyConversionCards();
+    if (requestedProductId) state.productId = String(requestedProductId);
     applyPreferredStartColor(true);
     // Altijd starten op Step 1 — draft enkel herstellen voor product/kleur/maat, niet voor step
-    if (!(await restoreDesignerDraft())) {
+    if (!restoreDesignerDraft()) {
         applySelectedProduct(getSelectedProduct(), { preferWhite: true });
     }
     updatePricingUI();

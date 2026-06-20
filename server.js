@@ -40,6 +40,7 @@ const USE_WRITABLE_TMP = USE_PG || IS_VERCEL_RUNTIME;
 const STORAGE_ROOT = USE_WRITABLE_TMP ? '/tmp' : ROOT;
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const INDEX_HTML_PATH = path.join(PUBLIC_DIR, 'index.html');
+const DESIGNER_HTML_PATH = path.join(PUBLIC_DIR, 'designer.html');
 const BRAND_ASSET_DIR = USE_WRITABLE_TMP
   ? path.join(STORAGE_ROOT, 'uploads', 'assets', 'branding')
   : path.join(PUBLIC_DIR, 'assets', 'branding');
@@ -5702,13 +5703,7 @@ app.get('/', async (_req, res) => {
 });
 
 app.get('/designer', async (_req, res) => {
-  try {
-    const cfg = await getConfig();
-    res.type('html').send(renderIndexWithSeo(cfg));
-  } catch (err) {
-    console.error('Designer render fallback naar statische index:', err?.message || err);
-    res.sendFile(INDEX_HTML_PATH);
-  }
+  res.sendFile(DESIGNER_HTML_PATH);
 });
 
 app.use(express.static(PUBLIC_DIR));

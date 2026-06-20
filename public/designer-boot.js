@@ -29,7 +29,7 @@
     }
 
     // ── Brand / hero ─────────────────────────────────────────────────────
-    const brandName = cfg.brand?.name || 'NEBULOUS';
+    const brandName = cfg.brand?.name || 'Digitify';
     document.title = `${brandName} - Designer`;
     document.querySelectorAll('.logo span:last-child').forEach((el) => { el.textContent = brandName; });
     const hero = cfg.hero || {};

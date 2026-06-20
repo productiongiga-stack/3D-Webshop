@@ -196,8 +196,14 @@ body.digitify-shop-body.storefront-page {
   text-decoration: none;
 }
 
-.digitify-header-cta:hover {
-  background: var(--digitify-accent-dark);
+.digitify-header-cta--ghost {
+  background: transparent;
+  border: 1px solid rgba(255, 175, 81, 0.45);
+  color: var(--digitify-accent-dark);
+}
+
+.digitify-header-cta--ghost:hover {
+  background: rgba(255, 175, 81, 0.12);
 }
 
 body.digitify-shop-body .nav:not(.digitify-legacy-hidden) {

@@ -463,6 +463,11 @@ function renderHero() {
     posterEl.src = poster;
     posterEl.alt = product.name || 'Product';
   }
+  const designLink = $('#heroDesignLink');
+  if (designLink && product?.id) {
+    designLink.href = `/designer?product=${encodeURIComponent(product.id)}`;
+    designLink.hidden = false;
+  }
 }
 
 function renderOptions() {

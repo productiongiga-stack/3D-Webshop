@@ -60,6 +60,7 @@
             <a href="https://wa.me/32486515773" target="_blank" rel="noopener noreferrer" aria-label="WhatsApp">WA</a>
           </div>
           <a href="${wpUrl(cfg, '/contact/')}" class="digitify-header-cta">Offerte <span aria-hidden="true">→</span></a>
+          <a href="/designer" class="digitify-header-cta digitify-header-cta--ghost">Designer</a>
           <span data-cart-icon></span>
           <span data-nav-user style="display:flex;gap:.5rem;align-items:center"></span>
         </div>
