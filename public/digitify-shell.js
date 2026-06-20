@@ -28,7 +28,7 @@
     const link = document.createElement('link');
     link.id = 'digitifyHeaderDeckCss';
     link.rel = 'stylesheet';
-    link.href = '/digitify-header-deck.css';
+    link.href = '/digitify-header-deck.css?v=4';
     document.head.appendChild(link);
   }
 

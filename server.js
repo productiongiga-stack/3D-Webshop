@@ -5831,7 +5831,14 @@ app.use('/assets', (req, res, next) => {
   next();
 });
 
-app.use(express.static(PUBLIC_DIR));
+app.use(express.static(PUBLIC_DIR, {
+  maxAge: process.env.VERCEL ? 0 : 0,
+  setHeaders(res, filePath) {
+    if (/\.(css|js|html)$/i.test(filePath)) {
+      res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+    }
+  }
+}));
 
 const pageRoutes = [
   '/login', '/register', '/dashboard', '/admin', '/account', '/cart',
