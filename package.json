@@ -9,6 +9,7 @@
     "test": "node --test test/**/*.test.js",
     "seed:owner": "node scripts/seed-owner.js",
     "seed:catalog": "node scripts/seed-digitify-catalog.js",
+    "setup:production-db": "node scripts/setup-production-db.js",
     "check:db-migration": "node scripts/check-db-migration.js"
   },
   "dependencies": {

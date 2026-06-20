@@ -189,6 +189,53 @@ CREATE TABLE IF NOT EXISTS deposit_invoices (
   }
 }
 
+// ── In-memory fallback (invalid/unreachable DATABASE_URL on Vercel) ───────────
+let dbDegraded = false;
+
+function createMemoryDbAdapter() {
+  const settings = new Map();
+  return {
+    prepare(sql) {
+      const qLower = String(sql || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      return {
+        async get(...params) {
+          if (qLower.includes('from settings') && qLower.includes('where key')) {
+            const key = params[0];
+            if (!settings.has(key)) return undefined;
+            const val = settings.get(key);
+            return { value: typeof val === 'string' ? val : JSON.stringify(val) };
+          }
+          if (qLower.includes('select 1')) return { ok: 1 };
+          return undefined;
+        },
+        async run(...params) {
+          if (qLower.includes('into settings')) {
+            const key = params[0];
+            let val = params[1];
+            try { val = JSON.parse(val); } catch { /* keep raw string */ }
+            settings.set(key, val);
+            return { changes: 1 };
+          }
+          return { changes: 0 };
+        },
+        async all() { return []; }
+      };
+    },
+    async exec() {},
+    async close() {},
+    initSchema: async () => {},
+    getPool: () => null,
+    pragma: () => []
+  };
+}
+
+async function activateMemoryFallback(err) {
+  console.warn('[db] PostgreSQL unavailable — catalog-only mode:', err?.message || err);
+  dbDegraded = true;
+  db = createMemoryDbAdapter();
+  await ensureConfig();
+}
+
 // ── Schema init ───────────────────────────────────────────────────────────────
 async function initDatabase() {
   if (IS_VERCEL && !USE_PG) {
@@ -197,8 +244,18 @@ async function initDatabase() {
     );
   }
   if (USE_PG) {
-    await db.initSchema();
-    await db.exec(`
+    try {
+      await db.prepare('SELECT 1 AS ok').get();
+    } catch (err) {
+      if (IS_VERCEL) {
+        await activateMemoryFallback(err);
+        return;
+      }
+      throw err;
+    }
+    try {
+      await db.initSchema();
+      await db.exec(`
 CREATE TABLE IF NOT EXISTS audit_log (
   id SERIAL PRIMARY KEY,
   user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -228,8 +285,15 @@ CREATE TABLE IF NOT EXISTS upload_blobs (
 );
 CREATE INDEX IF NOT EXISTS idx_upload_blobs_updated_at ON upload_blobs(updated_at);
     `);
-    await ensurePgRuntimeSchemaCompat();
-    await ensureAuditLogSchemaCompat();
+      await ensurePgRuntimeSchemaCompat();
+      await ensureAuditLogSchemaCompat();
+    } catch (err) {
+      if (IS_VERCEL) {
+        await activateMemoryFallback(err);
+        return;
+      }
+      throw err;
+    }
   } else {
     // SQLite schema (inline, same as original db.js)
     await db.exec(`
@@ -702,8 +766,8 @@ const DEFAULT_CONFIG = {
     themePreset: 'DIGITIFY',
     themeMode: 'LIGHT',
     logoMark: '✦',
-    logoPath: 'assets/branding/logo-black.png',
-    faviconPath: 'assets/branding/logo-black.png',
+    logoPath: 'assets/branding/logo-header.png',
+    faviconPath: 'assets/branding/logo-header.png',
     accentColor: '#ffaf51', accentColor2: '#e8983a',
     headingFont: 'POPPINS', bodyFont: 'POPPINS',
     buttonStyle: 'ROUNDED', sectionTone: 'MUTED',
@@ -732,6 +796,7 @@ const DEFAULT_CONFIG = {
       id: 'led-lichtbak-kabel', category: '3d', name: 'LED lichtbak A3/A4 (kabel)',
       description: 'Opvallende LED lichtbak met kabelaansluiting — ideaal voor vitrines en counters.',
       mockupPath: 'assets/products/digitify/led-lichtbak-kabel/mock.png', basePrice: 49.95,
+      designerEnabled: false,
       model3d: DIGITIFY_MODEL3D('led-lichtbak-kabel'),
       isFeatured: true, isDefault: true, sortOrder: 10,
       sizes: [{ code: 'A4', widthMm: 297, heightMm: 210 }],
@@ -741,6 +806,7 @@ const DEFAULT_CONFIG = {
       id: 'led-lichtbak-oplaadbaar', category: '3d', name: 'LED lichtbak A4 (oplaadbaar)',
       description: 'Draadloze LED lichtbak met oplaadbare batterij — flexibel te plaatsen.',
       mockupPath: 'assets/products/digitify/led-lichtbak-oplaadbaar/mock.png', basePrice: 54.95,
+      designerEnabled: false,
       model3d: DIGITIFY_MODEL3D('led-lichtbak-oplaadbaar'),
       sortOrder: 20, sizes: [{ code: 'A4', widthMm: 297, heightMm: 210 }],
       colorHexes: ['#ffffff'], enabled: true
@@ -749,6 +815,7 @@ const DEFAULT_CONFIG = {
       id: 'nfc-polsbandjes', category: '3d', name: 'NFC polsbandjes',
       description: 'Wearable NFC-tags voor events, festivals en activaties — meerdere kleuren beschikbaar.',
       mockupPath: 'assets/products/digitify/nfc-polsbandjes/mock.png', basePrice: 19.95,
+      designerEnabled: true,
       model3d: DIGITIFY_MODEL3D('nfc-polsbandjes'),
       sortOrder: 30, sizes: [{ code: 'STD', widthMm: 250, heightMm: 25 }],
       colorHexes: ['#ffffff', '#0b0b0b', '#ffaf51'], enabled: true
@@ -757,6 +824,7 @@ const DEFAULT_CONFIG = {
       id: 'nfc-patroon-bord', category: '3d', name: 'NFC patroon bord',
       description: 'Tafelbord met NFC — wit of zwart, eigen design of Digitify-opmaak.',
       mockupPath: 'assets/products/digitify/nfc-patroon-bord/mock.png', basePrice: 34.95,
+      designerEnabled: true,
       model3d: DIGITIFY_MODEL3D('nfc-patroon-bord'),
       sortOrder: 40, sizes: [{ code: 'STD', widthMm: 148, heightMm: 210 }],
       colorHexes: ['#ffffff', '#0b0b0b'], enabled: true
@@ -765,6 +833,7 @@ const DEFAULT_CONFIG = {
       id: 'nfc-sleutelhangers', category: '3d', name: 'NFC sleutelhangers',
       description: 'Compacte RFID/NFC tokens als sleutelhanger — perfect voor loyalty en activaties.',
       mockupPath: 'assets/products/digitify/nfc-sleutelhangers/mock.png', basePrice: 9.95,
+      designerEnabled: true,
       model3d: DIGITIFY_MODEL3D('nfc-sleutelhangers'),
       sortOrder: 50, sizes: [{ code: 'STD', widthMm: 40, heightMm: 40 }],
       colorHexes: ['#ffffff', '#0b0b0b'], enabled: true
@@ -773,6 +842,7 @@ const DEFAULT_CONFIG = {
       id: 'nfc-review-kaartjes', category: 'standard', name: 'NFC review kaartjes',
       description: 'Kaartjes die klanten direct naar je Google review-pagina leiden.',
       mockupPath: 'assets/products/digitify/nfc-review-kaartjes/mock.png', basePrice: 12.95,
+      designerEnabled: true,
       model3d: { enabled: false },
       sortOrder: 60, sizes: [{ code: 'STD', widthMm: 85, heightMm: 55 }],
       colorHexes: ['#ffffff'], enabled: true
@@ -781,6 +851,7 @@ const DEFAULT_CONFIG = {
       id: 'nfc-visitekaartjes', category: 'standard', name: 'NFC visitekaartjes',
       description: 'Smart business cards — deel je contactgegevens met één tik.',
       mockupPath: 'assets/products/digitify/nfc-visitekaartjes/mock-wit.png', basePrice: 24.95,
+      designerEnabled: true,
       model3d: { enabled: false },
       sortOrder: 70, sizes: [{ code: 'STD', widthMm: 85, heightMm: 55 }],
       colorHexes: ['#ffffff', '#0b0b0b'],
@@ -928,6 +999,8 @@ function sanitizeProducts(products) {
     const name = String(p?.name || idBase).trim().slice(0, 80) || idBase;
     const description = String(p?.description || '').trim().slice(0, 240);
     const mockupPath = String(p?.mockupPath || '').trim().replace(/^\/+/, '');
+    const designerMockupPath = String(p?.designerMockupPath || '').trim().replace(/^\/+/, '');
+    const designerEnabled = p?.designerEnabled === true ? true : (p?.designerEnabled === false ? false : undefined);
     const priceMultiplierRaw = Number(p?.priceMultiplier);
     const extraFeeMultiplierRaw = Number(p?.extraDesignFeeMultiplier);
     const priceMultiplier = Number.isFinite(priceMultiplierRaw) ? Math.min(10, Math.max(0.1, priceMultiplierRaw)) : 1;
@@ -975,14 +1048,28 @@ function sanitizeProducts(products) {
     if (category !== '3d' && category !== 'standard') {
       category = model3d.enabled ? '3d' : 'standard';
     }
-    out.push({
+    const row = {
       id: idBase, name, description, mockupPath: mockupPath || 'assets/tshirt_mockup.png',
       basePrice, extraDesignFee, priceMultiplier, extraDesignFeeMultiplier,
       model3d, category,
       colorPrices, sizePrices, colorData,
       sortOrder: Number.isFinite(Number(p?.sortOrder)) ? Math.max(0, Math.min(9999, Math.round(Number(p.sortOrder)))) : ((idx + 1) * 10),
       sizes, colorHexes, enabled: p?.enabled !== false, isDefault: !!p?.isDefault, isFeatured: !!p?.isFeatured
-    });
+    };
+    let resolvedDesignerEnabled = designerEnabled;
+    if (resolvedDesignerEnabled === undefined) {
+      const defaultProduct = DEFAULT_CONFIG.products.find((d) => d.id === idBase);
+      if (defaultProduct?.designerEnabled === true || defaultProduct?.designerEnabled === false) {
+        resolvedDesignerEnabled = defaultProduct.designerEnabled;
+      }
+    }
+    if (resolvedDesignerEnabled === true && !designerMockupPath) {
+      const defaultProduct = DEFAULT_CONFIG.products.find((d) => d.id === idBase);
+      if (defaultProduct?.designerEnabled === false) resolvedDesignerEnabled = false;
+    }
+    if (resolvedDesignerEnabled === true || resolvedDesignerEnabled === false) row.designerEnabled = resolvedDesignerEnabled;
+    if (designerMockupPath) row.designerMockupPath = designerMockupPath;
+    out.push(row);
   });
   const enabled = out.filter(p => p.enabled);
   if (!enabled.length) return [{ ...DEFAULT_CONFIG.products[0] }];
@@ -1065,5 +1152,6 @@ module.exports = {
   initDatabase,
   sanitizeProducts,
   USE_PG,
+  get dbDegraded() { return dbDegraded; },
   pragma: () => {} // no-op for compat
 };

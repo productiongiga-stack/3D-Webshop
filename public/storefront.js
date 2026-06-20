@@ -31,6 +31,9 @@ const SELECTION_PREVIEW_ROTATE_SPEED = 0.28;
 const MINI_PREVIEW_ROTATE_SPEED = 0.52;
 const MINI_PREVIEW_WIDTH = 86;
 const MINI_PREVIEW_HEIGHT = 94;
+const HERO_DOCK_PREVIEW_WIDTH = 72;
+const HERO_DOCK_PREVIEW_HEIGHT = 80;
+const HERO_DOCK_ROTATE_SPEED = 0.48;
 
 const state = {
   config: null,
@@ -73,6 +76,7 @@ const state = {
     presentation: null
   },
   miniPreviews: new Map(),
+  heroDockPreviews: new Map(),
   miniVisible: new Set(),
   reduceMotion: window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches || false,
   pageVisible: true,
@@ -174,6 +178,22 @@ function hasProductModel3d(product) {
   return manifest.enabled && !!manifest.modelPath;
 }
 
+function getDesignerMockupPath(product) {
+  const designerPath = String(product?.designerMockupPath || '').trim().replace(/^\/+/, '');
+  if (designerPath) return designerPath;
+  return String(product?.mockupPath || '').trim().replace(/^\/+/, '');
+}
+
+function isDesignerCatalogProduct(product) {
+  if (!product || product.enabled === false) return false;
+  if (product.designerEnabled !== true) return false;
+  return !!getDesignerMockupPath(product);
+}
+
+function productShowsDesignerLink(product) {
+  return !!(product?.id && product.designerEnabled === true && getDesignerMockupPath(product));
+}
+
 function productPreviewPoster(product) {
   const manifest = modelManifest(product);
   return assetUrl(manifest.posterPath || product?.mockupPath || 'assets/tshirt_mockup.png');
@@ -183,7 +203,16 @@ function paintRendererClear(renderer) {
   if (!renderer) return;
   renderer.setRenderTarget(null);
   renderer.setClearColor(0x000000, 0);
+  renderer.setClearAlpha(0);
   renderer.clear(true, true, true);
+}
+
+function configureHeroRendererSurface(renderer, scene) {
+  if (!renderer) return;
+  renderer.setClearColor(0x000000, 0);
+  renderer.setClearAlpha(0);
+  if (renderer.domElement) renderer.domElement.style.background = 'transparent';
+  if (scene) scene.background = null;
 }
 
 function setStageMediaMode(stage, mode) {
@@ -420,6 +449,9 @@ function selectProduct(product) {
   state.selectedColorHex = colors[0]?.hex || '';
   state.selectedColorName = colors[0]?.name || '';
   state.selectedSize = sizes[0]?.code || 'M';
+  if (hasProductModel3d(product)) {
+    setHeroMediaMode('loading');
+  }
   renderHero();
   renderOptions();
   loadHeroModel(product);
@@ -431,16 +463,26 @@ function renderHero() {
   if (!product) return;
   const config = state.config || {};
   const price = productPrice(product);
-  $('#heroProductKicker').textContent = `${config.brand?.name || 'Digitify'} · ${product.category === '3d' || hasProductModel3d(product) ? '3D preview' : 'Product'}`;
-  $('#heroProductTitle').textContent = product.name || 'Product';
-  $('#heroProductDescription').textContent = product.description || 'Bekijk dit product in 3D en bestel zonder uploadstap.';
-  $('#navBasePrice').textContent = fmtEUR(price);
-  $('#storefrontPrice').textContent = fmtEUR(price);
+  const heroKicker = $('#heroProductKicker');
+  const heroTitle = $('#heroProductTitle');
+  const heroDescription = $('#heroProductDescription');
+  const navBasePrice = $('#navBasePrice');
+  const storefrontPrice = $('#storefrontPrice');
+  if (heroKicker) {
+    heroKicker.textContent = `${config.brand?.name || 'Digitify'} · ${product.category === '3d' || hasProductModel3d(product) ? '3D preview' : 'Product'}`;
+  }
+  if (heroTitle) heroTitle.textContent = product.name || 'Product';
+  if (heroDescription) {
+    heroDescription.textContent = product.description || 'Bekijk dit product in 3D en bestel zonder uploadstap.';
+  }
+  if (navBasePrice) navBasePrice.textContent = fmtEUR(price);
+  if (storefrontPrice) storefrontPrice.textContent = fmtEUR(price);
   const note = String(config.conversion?.checkoutNote || '').trim()
     || (String(config.checkout?.approvalMode || 'MANUAL').toUpperCase() === 'DIRECT'
       ? 'Je kan na het plaatsen van de bestelling meteen veilig betalen.'
       : 'Na goedkeuring ontvang je je beveiligde betaallink per e-mail.');
-  $('#storefrontCheckoutNote').textContent = note;
+  const checkoutNote = $('#storefrontCheckoutNote');
+  if (checkoutNote) checkoutNote.textContent = note;
   const facts = [
     { type: 'price', text: `Vanaf ${fmtEUR(price)}` },
     {
@@ -454,20 +496,38 @@ function renderHero() {
       text: config.pricing?.deliveryText ? `Levering: ${config.pricing.deliveryText}` : 'Online bestellen'
     }
   ];
-  $('#heroProductFacts').innerHTML = facts
-    .map((fact) => `<span class="hero-fact" data-fact="${escapeHtml(fact.type)}">${escapeHtml(fact.text)}</span>`)
-    .join('');
+  const heroFacts = $('#heroProductFacts');
+  if (heroFacts) {
+    heroFacts.innerHTML = facts
+      .map((fact) => `<span class="hero-fact" data-fact="${escapeHtml(fact.type)}">${escapeHtml(fact.text)}</span>`)
+      .join('');
+  }
   const poster = productPreviewPoster(product);
   const posterEl = $('#hero3dPoster');
+  const heroHas3d = hasProductModel3d(product);
   if (posterEl) {
-    posterEl.src = poster;
-    posterEl.alt = product.name || 'Product';
+    if (heroHas3d) {
+      posterEl.hidden = true;
+      posterEl.removeAttribute('src');
+      posterEl.alt = '';
+    } else {
+      posterEl.hidden = false;
+      posterEl.src = poster;
+      posterEl.alt = product.name || 'Product';
+    }
   }
   const designLink = $('#heroDesignLink');
-  if (designLink && product?.id) {
-    designLink.href = `/designer?product=${encodeURIComponent(product.id)}`;
-    designLink.hidden = false;
+  if (designLink) {
+    const showDesigner = productShowsDesignerLink(product);
+    designLink.hidden = !showDesigner;
+    designLink.classList.toggle('hidden', !showDesigner);
+    if (showDesigner) {
+      designLink.href = `/designer?product=${encodeURIComponent(product.id)}`;
+    } else {
+      designLink.removeAttribute('href');
+    }
   }
+  renderHero3dDock();
 }
 
 function renderOptions() {
@@ -516,12 +576,15 @@ function setupThree() {
     canvas,
     antialias: true,
     alpha: true,
+    premultipliedAlpha: false,
     powerPreference: 'high-performance',
     stencil: false
   });
   const defaultManifest = { quality: 'high' };
   configureRendererQuality(renderer, defaultManifest, 'hero');
   const scene = new THREE.Scene();
+  scene.background = null;
+  configureHeroRendererSurface(renderer, scene);
   const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
   camera.position.set(0, 0.12, 4.6);
   const modelGroup = new THREE.Group();
@@ -543,6 +606,7 @@ function setupThree() {
     resizeThree();
     resizeSelectionPreview();
     resizeAllMiniPreviews();
+    resizeAllHeroDockPreviews();
   };
   window.addEventListener('resize', onHeroLayoutChange);
   if (typeof ResizeObserver !== 'undefined') {
@@ -619,6 +683,7 @@ async function loadHeroModel(product) {
   setHeroMediaMode('loading');
   try {
     configureRendererQuality(state.renderer, manifest, 'hero');
+    configureHeroRendererSurface(state.renderer, state.scene);
     const object = await loadModelScene(manifest, assetUrl);
     if (state.loadingToken !== token) return;
     await prepareSceneTextures(state.renderer, object);
@@ -650,7 +715,7 @@ async function loadHeroModel(product) {
     console.warn('3D model laden mislukt:', err);
     report3dError(product?.id, 'hero', err);
     if (state.loadingToken !== token) return;
-    setHeroMediaMode('2d');
+    setHeroMediaMode('3d');
   }
 }
 
@@ -1013,6 +1078,215 @@ function renderMiniPreviews() {
   if (activeId) setMiniPreviewLive(activeId, true);
 }
 
+function productsWith3d() {
+  return state.products.filter((product) => hasProductModel3d(product));
+}
+
+function disposeHeroDockEntry(entry) {
+  if (!entry) return;
+  if (entry.displayModel) {
+    disposeObject3d(entry.displayModel);
+    entry.displayModel = null;
+  }
+  entry.renderer?.dispose?.();
+  entry.renderer = null;
+  entry.scene = null;
+  entry.camera = null;
+  entry.modelGroup = null;
+  entry.ready = false;
+}
+
+function disposeAllHeroDockPreviews() {
+  state.heroDockPreviews.forEach((entry) => disposeHeroDockEntry(entry));
+  state.heroDockPreviews.clear();
+}
+
+function resizeHeroDockEntry(entry) {
+  if (!entry?.renderer || !entry.camera || !entry.canvas) return;
+  const stage = entry.canvas.closest('.storefront-hero-3d-dock-stage');
+  const width = Math.max(56, Math.round(stage?.clientWidth || HERO_DOCK_PREVIEW_WIDTH));
+  const height = Math.max(56, Math.round(stage?.clientHeight || HERO_DOCK_PREVIEW_HEIGHT));
+  entry.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  entry.renderer.setSize(width, height, false);
+  entry.camera.aspect = width / height;
+  entry.camera.updateProjectionMatrix();
+  if (entry.displayModel) fitMiniCameraToModel(entry.camera, entry.displayModel);
+}
+
+function resizeAllHeroDockPreviews() {
+  state.heroDockPreviews.forEach((entry) => resizeHeroDockEntry(entry));
+}
+
+function updateHeroDockMediaClass(productId) {
+  const id = String(productId || '');
+  const canvas = document.querySelector(`.storefront-hero-dock-canvas[data-dock-product="${CSS.escape(id)}"]`);
+  const stage = canvas?.closest('.storefront-hero-3d-dock-stage');
+  const entry = state.heroDockPreviews.get(id);
+  const live = !!(entry?.active && entry?.ready);
+  if (stage) stage.classList.toggle('is-dock-3d-live', live);
+}
+
+async function ensureHeroDockPreview(product) {
+  const productId = String(product.id || '');
+  if (!productId || !hasProductModel3d(product)) return null;
+
+  const existing = state.heroDockPreviews.get(productId);
+  if (existing?.ready) return existing;
+  if (existing?.loadingPromise) return existing.loadingPromise;
+
+  const canvas = document.querySelector(`.storefront-hero-dock-canvas[data-dock-product="${CSS.escape(productId)}"]`);
+  if (!canvas) return null;
+
+  const entry = existing || { productId, ready: false, active: false };
+  entry.canvas = canvas;
+  state.heroDockPreviews.set(productId, entry);
+
+  entry.loadingPromise = (async () => {
+    try {
+      const manifest = modelManifest(product);
+      const object = await loadModelScene(manifest, assetUrl);
+      const stage = canvas.closest('.storefront-hero-3d-dock-stage');
+      const width = Math.max(56, Math.round(stage?.clientWidth || HERO_DOCK_PREVIEW_WIDTH));
+      const height = Math.max(56, Math.round(stage?.clientHeight || HERO_DOCK_PREVIEW_HEIGHT));
+
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+      configureRendererQuality(renderer, manifest, 'mini');
+      paintRendererClear(renderer);
+      renderer.setSize(width, height, false);
+      await prepareSceneTextures(renderer, object);
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(38, width / height, 0.1, 100);
+      const modelGroup = new THREE.Group();
+      scene.add(modelGroup);
+
+      const miniManifest = manifestForMiniPreview(manifest);
+      const displayModel = wrapModelForDisplay(object, miniManifest, {
+        edgeHighlight: false,
+        maxAnisotropy: renderer.capabilities.getMaxAnisotropy()
+      });
+      modelGroup.add(displayModel);
+
+      const presentation = applyModel3dPresentation({
+        renderer,
+        scene,
+        manifest,
+        displayModel,
+        context: 'mini'
+      });
+
+      Object.assign(entry, {
+        renderer,
+        scene,
+        camera,
+        modelGroup,
+        displayModel,
+        manifest,
+        miniManifest,
+        presentation,
+        ready: true,
+        loadingPromise: null
+      });
+      resizeHeroDockEntry(entry);
+      entry.renderer.render(entry.scene, entry.camera);
+      return entry;
+    } catch (err) {
+      console.warn('Hero dock 3D laden mislukt:', productId, err);
+      report3dError(productId, 'hero-dock', err);
+      disposeHeroDockEntry(entry);
+      state.heroDockPreviews.delete(productId);
+      return null;
+    }
+  })();
+
+  return entry.loadingPromise;
+}
+
+async function setHeroDockPreviewLive(productId, live) {
+  const id = String(productId || '');
+  const product = state.products.find((p) => String(p.id) === id);
+  if (!product || !hasProductModel3d(product)) {
+    const entry = state.heroDockPreviews.get(id);
+    if (entry) entry.active = false;
+    updateHeroDockMediaClass(id);
+    return;
+  }
+
+  let entry = state.heroDockPreviews.get(id) || { productId: id, ready: false, active: false };
+  entry.active = !!live;
+  state.heroDockPreviews.set(id, entry);
+  updateHeroDockMediaClass(id);
+
+  if (!live || prefersMobilePosterOnly) return;
+
+  const loaded = await ensureHeroDockPreview(product);
+  if (!loaded?.ready) return;
+  if (!state.heroDockPreviews.get(id)?.active) {
+    updateHeroDockMediaClass(id);
+    return;
+  }
+  resizeHeroDockEntry(loaded);
+  updateHeroDockMediaClass(id);
+}
+
+function bindHero3dDock() {
+  const dock = $('#hero3dDock');
+  if (!dock || dock.dataset.bound === '1') return;
+  dock.dataset.bound = '1';
+  dock.addEventListener('click', (event) => {
+    const btn = event.target.closest('[data-dock-product]');
+    if (!btn) return;
+    const product = state.products.find((p) => String(p.id) === String(btn.dataset.dockProduct));
+    if (product) selectProduct(product);
+  });
+}
+
+function renderHero3dDock() {
+  const dock = $('#hero3dDock');
+  const track = $('#hero3dDockTrack');
+  if (!dock || !track) return;
+
+  bindHero3dDock();
+  const items = productsWith3d();
+  dock.hidden = items.length === 0;
+
+  const keepIds = new Set(items.map((product) => String(product.id)));
+  state.heroDockPreviews.forEach((entry, id) => {
+    if (!keepIds.has(id)) {
+      disposeHeroDockEntry(entry);
+      state.heroDockPreviews.delete(id);
+    }
+  });
+
+  const selectedId = String(state.selectedProduct?.id || '');
+  const itemIds = items.map((product) => String(product.id)).join('|');
+  if (track.dataset.itemIds === itemIds) {
+    track.querySelectorAll('[data-dock-product]').forEach((btn) => {
+      const active = String(btn.dataset.dockProduct) === selectedId;
+      btn.classList.toggle('is-active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    return;
+  }
+
+  track.dataset.itemIds = itemIds;
+  track.innerHTML = items.map((product) => {
+    const id = escapeHtml(product.id);
+    const active = String(product.id) === selectedId;
+    const poster = escapeHtml(productPreviewPoster(product));
+    const label = escapeHtml(product.name || 'Product');
+    return `
+      <button type="button" class="storefront-hero-3d-dock-item${active ? ' is-active' : ''}" data-dock-product="${id}" aria-label="${label}" aria-pressed="${active ? 'true' : 'false'}" title="${label}">
+        <span class="storefront-hero-3d-dock-stage">
+          <canvas class="storefront-hero-dock-canvas" data-dock-product="${id}" aria-hidden="true"></canvas>
+          <img class="storefront-hero-dock-poster" src="${poster}" alt="" loading="lazy">
+        </span>
+      </button>`;
+  }).join('');
+
+  items.forEach((product) => setHeroDockPreviewLive(product.id, true));
+}
+
 function animateThree(timestamp = performance.now()) {
   state.frameId = requestAnimationFrame(animateThree);
   const delta = Math.min(0.05, Math.max(0.001, (timestamp - (state.lastFrameTime || timestamp)) / 1000));
@@ -1057,6 +1331,15 @@ function animateThree(timestamp = performance.now()) {
     if (!state.miniVisible.has(entry.productId)) return;
     if (!state.reduceMotion) {
       entry.modelGroup.rotation.y += MINI_PREVIEW_ROTATE_SPEED * delta;
+    }
+    paintRendererClear(entry.renderer);
+    entry.renderer.render(entry.scene, entry.camera);
+  });
+
+  state.heroDockPreviews.forEach((entry) => {
+    if (!entry.active || !entry.ready || !entry.renderer || !entry.modelGroup) return;
+    if (!state.reduceMotion) {
+      entry.modelGroup.rotation.y += HERO_DOCK_ROTATE_SPEED * delta;
     }
     paintRendererClear(entry.renderer);
     entry.renderer.render(entry.scene, entry.camera);
@@ -1142,7 +1425,10 @@ async function init() {
   window.NEB_CONFIG = config;
   if (window.NEB?.applyBranding) NEB.applyBranding(config);
   resolveAssetUrl = createAssetUrlResolver(config);
-  state.products = (Array.isArray(config.products) ? config.products : []).filter((p) => p && p.enabled !== false);
+  state.products = (window.NEB?.sortCatalogProducts
+    ? NEB.sortCatalogProducts(Array.isArray(config.products) ? config.products : [])
+    : (Array.isArray(config.products) ? config.products : [])
+  ).filter((p) => p && p.enabled !== false);
   renderCategoryFilters();
   const fromUrl = productFromUrlParam();
   const featured = fromUrl

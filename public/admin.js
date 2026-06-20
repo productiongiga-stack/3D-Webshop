@@ -150,6 +150,17 @@ function slugifyProductId(input, fallback = 'product') {
   return slug || fallback;
 }
 
+function sortCatalogProducts(products) {
+  return window.NEB?.sortCatalogProducts
+    ? NEB.sortCatalogProducts(products)
+    : [...(Array.isArray(products) ? products : [])].sort((a, b) => {
+      const ao = Number.isFinite(Number(a?.sortOrder)) ? Number(a.sortOrder) : 9999;
+      const bo = Number.isFinite(Number(b?.sortOrder)) ? Number(b.sortOrder) : 9999;
+      if (ao !== bo) return ao - bo;
+      return String(a?.name || '').localeCompare(String(b?.name || ''), 'nl');
+    });
+}
+
 function normalizeProducts(products) {
   const normalizeHex = (raw) => {
     const m = /^#?([0-9a-fA-F]{6})$/.exec(String(raw || '').trim());
@@ -403,8 +414,10 @@ function normalizeProducts(products) {
 
     const basePriceRaw = Number(p?.basePrice);
     const extraDesignFeeRaw = Number(p?.extraDesignFee);
+    const designerMockupPath = String(p?.designerMockupPath || '').trim().replace(/^\/+/, '');
+    const designerEnabled = p?.designerEnabled === true ? true : (p?.designerEnabled === false ? false : undefined);
 
-    out.push({
+    const row = {
       id,
       name: String(p?.name || `Product ${idx + 1}`),
       description: String(p?.description || ''),
@@ -423,7 +436,10 @@ function normalizeProducts(products) {
       isDefault: !!p?.isDefault,
       isFeatured: !!p?.isFeatured,
       sortOrder: Number.isFinite(Number(p?.sortOrder)) ? Math.max(0, Math.min(9999, Math.round(Number(p.sortOrder)))) : ((idx + 1) * 10)
-    });
+    };
+    if (designerEnabled === true || designerEnabled === false) row.designerEnabled = designerEnabled;
+    if (designerMockupPath) row.designerMockupPath = designerMockupPath;
+    out.push(row);
   });
 
   if (!out.length) {
@@ -613,7 +629,9 @@ function formatAuditDetails(details) {
   CURRENT_USER = await NEB.requireAuth(['ADMIN', 'OWNER']);
   if (!CURRENT_USER) return;
   window.NEB_USER = CURRENT_USER;
-  await NEB.paintNav();
+  if (window.DigitifyShell?.waitForHeaderSlot) await DigitifyShell.waitForHeaderSlot();
+  if (window.DigitifyShell?.refreshAuth) await DigitifyShell.refreshAuth();
+  else await NEB.paintNav();
 
   document.getElementById('welcome').textContent =
     CURRENT_USER.role === 'OWNER'
@@ -2885,6 +2903,124 @@ async function showUserDetail(userId) {
 }
 
 // ── Products tab helpers ──────────────────────────────────────────────────
+function assetHasMockFilename(rawPath) {
+  const normalized = String(rawPath || '').trim().replace(/^\/+/, '');
+  if (!normalized) return false;
+  const filename = normalized.split('/').pop().replace(/\.[^.]+$/, '');
+  return /\bmock\b/i.test(filename);
+}
+
+function productShowsInDesigner(p) {
+  if (!p || p.enabled === false || p.designerEnabled !== true) return false;
+  return !!(String(p.designerMockupPath || '').trim() || String(p.mockupPath || '').trim());
+}
+
+function productDesignerEnabledDefault(p) {
+  return p?.designerEnabled === true;
+}
+
+function readDesignerMockupPathFromModal(modal) {
+  return String(modal?.querySelector('#pmDesignerMockupPath')?.value || '').trim().replace(/^\/+/, '');
+}
+
+function readStoreMockupPathFromModal(modal) {
+  return String(modal?.querySelector('#pmMockupPath')?.value || '').trim().replace(/^\/+/, '');
+}
+
+function effectiveDesignerMockupPathFromModal(modal) {
+  const designerPath = readDesignerMockupPathFromModal(modal);
+  if (designerPath) return designerPath;
+  return readStoreMockupPathFromModal(modal);
+}
+
+function updateDesignerMockupPreview(modal) {
+  if (!modal) return;
+  const thumb = modal.querySelector('#pmDesignerMockupThumb');
+  const hint = modal.querySelector('#pmDesignerMockupHint');
+  const designerPath = readDesignerMockupPathFromModal(modal);
+  const effectivePath = effectiveDesignerMockupPathFromModal(modal);
+  if (thumb) {
+    if (effectivePath) {
+      const opacity = designerPath ? '1' : '.72';
+      thumb.innerHTML = `<img src="/${escAttr(effectivePath)}" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border);opacity:${opacity}" alt="" onerror="this.onerror=null;this.src='/assets/tshirt_mockup.png';">`;
+    } else {
+      thumb.innerHTML = '<div style="width:64px;height:64px;border-radius:8px;border:2px dashed var(--border);display:flex;align-items:center;justify-content:center;font-size:1.4rem">🎨</div>';
+    }
+  }
+  if (hint) {
+    hint.textContent = designerPath
+      ? `Designer mockup: /${designerPath}`
+      : effectivePath
+        ? `Geen aparte designer mockup — gebruikt winkel-mockup: /${effectivePath}`
+        : 'Upload een mockup of stel eerst de winkel-mockup in.';
+  }
+}
+
+function syncDesignerMockupControls(modal) {
+  if (!modal) return;
+  const enabled = !!modal.querySelector('#pmDesignerEnabled')?.checked;
+  const block = modal.querySelector('#pmDesignerMockupBlock');
+  if (!block) return;
+  block.style.opacity = enabled ? '1' : '.55';
+  block.querySelectorAll('input:not([type="checkbox"]),button').forEach((el) => {
+    el.disabled = !enabled;
+  });
+}
+
+function bindDesignerMockupModalUi(modal, ctx = {}) {
+  if (!modal) return;
+  updateDesignerMockupPreview(modal);
+  syncDesignerMockupControls(modal);
+
+  modal.querySelector('#pmDesignerEnabled')?.addEventListener('change', () => {
+    syncDesignerMockupControls(modal);
+  });
+
+  modal.querySelector('#pmDesignerMockupPath')?.addEventListener('input', () => {
+    updateDesignerMockupPreview(modal);
+  });
+
+  modal.querySelector('#pmMockupPath')?.addEventListener('input', () => {
+    updateDesignerMockupPreview(modal);
+  });
+
+  modal.querySelector('#pmDesignerMockupUploadBtn')?.addEventListener('click', () => modal.querySelector('#pmDesignerMockupFile')?.click());
+
+  modal.querySelector('#pmDesignerMockupUseStoreBtn')?.addEventListener('click', () => {
+    const pathInput = modal.querySelector('#pmDesignerMockupPath');
+    if (pathInput) pathInput.value = '';
+    if (ctx.draft?.products?.[ctx.productIdx]) {
+      ctx.draft.products[ctx.productIdx].designerMockupPath = '';
+    }
+    updateDesignerMockupPreview(modal);
+  });
+
+  modal.querySelector('#pmDesignerMockupFile')?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append('mockup', file, file.name);
+    const btn = modal.querySelector('#pmDesignerMockupUploadBtn');
+    try {
+      if (btn) { btn.disabled = true; btn.textContent = 'Upload...'; }
+      const out = await NEB.json('/api/admin/products/mockup', { method: 'POST', body: form });
+      const newPath = String(out.path || '').trim().replace(/^\/+/, '');
+      if (modal.querySelector('#pmDesignerMockupPath')) modal.querySelector('#pmDesignerMockupPath').value = newPath;
+      if (newPath && ctx.draft?.products?.[ctx.productIdx]) {
+        ctx.draft.products[ctx.productIdx].designerMockupPath = newPath;
+      }
+      updateDesignerMockupPreview(modal);
+      NEB.toast('Designer mockup geüpload', 'success');
+    } catch (err) {
+      NEB.toast(err.message || 'Designer mockup upload mislukt', 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '📷 Upload designer mockup'; }
+      syncDesignerMockupControls(modal);
+      e.target.value = '';
+    }
+  });
+}
+
 function renderProductCard(p, i) {
   const src = (p.mockupPath || '').replace(/^\/+/, '');
   const thumb = src
@@ -2894,25 +3030,28 @@ function renderProductCard(p, i) {
   const cc = (p.colorHexes || []).length;
   const sc = (p.sizes || []).length;
   return `
-    <div class="prod-card${p.enabled === false ? ' prod-card--disabled' : ''}">
+    <div class="prod-card${p.enabled === false ? ' prod-card--disabled' : ''}" draggable="true" data-product-id="${escAttr(p.id)}">
+      <button class="prod-card-drag" type="button" draggable="false" title="Sleep om volgorde te wijzigen" aria-label="Sleep ${escAttr(p.name)}">⠿</button>
       <div class="prod-card-thumb">
         ${thumb}
         ${p.isDefault ? '<span class="prod-card-badge">Default</span>' : ''}
         ${p.isFeatured ? '<span class="prod-card-badge">3D hero</span>' : ''}
+        ${productShowsInDesigner(p) ? '<span class="prod-card-badge">Designer</span>' : ''}
         ${p.enabled === false ? '<span class="prod-card-badge prod-card-badge--off">Inactief</span>' : ''}
       </div>
       <div class="prod-card-body">
         <div class="prod-card-name">${escText(p.name)}</div>
         <div class="prod-card-meta">#${Number(p.sortOrder || 0)} · ${priceLabel} · ${cc} kleur${cc !== 1 ? 'en' : ''} · ${sc} maat${sc !== 1 ? 'en' : ''}</div>
       </div>
-      <button class="btn btn-ghost btn-sm prod-card-edit" data-edit-product="${i}" type="button">Bewerk ›</button>
+      <button class="btn btn-ghost btn-sm prod-card-edit" data-edit-product-id="${escAttr(p.id)}" type="button">Bewerk ›</button>
     </div>`;
 }
 
 function renderProductsTabPanel(products, c) {
-  const productCards = products.map((p, i) => renderProductCard(p, i)).join('');
-  const productCount = products.length;
-  const products3dCount = products.filter((p) => p.model3d?.enabled && p.model3d?.modelPath).length;
+  const sortedProducts = sortCatalogProducts(products);
+  const productCards = sortedProducts.map((p, i) => renderProductCard(p, i)).join('');
+  const productCount = sortedProducts.length;
+  const products3dCount = sortedProducts.filter((p) => p.model3d?.enabled && p.model3d?.modelPath).length;
   const catalogFoldMeta = productCount
     ? `${productCount} product${productCount === 1 ? '' : 'en'}${products3dCount ? ` · ${products3dCount}× 3D` : ''}`
     : 'Geen producten';
@@ -2949,22 +3088,19 @@ function renderProductsTabPanel(products, c) {
       </div>
 
       <div class="prod-subtab-panel active" data-prod-subtab-panel="producten">
-        <details class="settings-section settings-fold">
-          <summary class="settings-fold-summary">
-            <span class="settings-fold-title">Productcatalogus</span>
-            <span class="settings-fold-meta">${escText(catalogFoldMeta)}</span>
-            <span class="settings-fold-chevron" aria-hidden="true">▼</span>
-          </summary>
-          <div class="settings-fold-body settings-fold-body--catalog">
-            <p class="muted compact settings-fold-hint">Klik op <strong>Bewerk</strong> voor prijs, kleuren, maten en mockup per product.</p>
-            <div class="prod-card-grid prod-card-grid--compact">${productCards || '<p class="muted">Nog geen producten.</p>'}</div>
-            <div class="settings-fold-actions">
-              <button class="btn btn-ghost btn-sm" id="addProduct" type="button">+ Nieuw product</button>
-              <button class="btn btn-ghost btn-sm" id="bulkEnsurePostersBtn" type="button" title="Maakt voor 3D-producten zonder poster een WebP-poster van de mockup">Vul ontbrekende 3D-posters</button>
-              <span class="muted compact" id="bulkEnsurePostersResult"></span>
-            </div>
+        <div class="settings-section settings-section--catalog">
+          <div class="settings-section-head">
+            <h3>Productcatalogus</h3>
+            <span class="settings-section-meta">${escText(catalogFoldMeta)}</span>
           </div>
-        </details>
+          <p class="muted compact settings-fold-hint">Sleep producten om de volgorde in shop, designer en galleries te bepalen. Klik op <strong>Bewerk</strong> voor prijs, kleuren, maten en mockup per product.</p>
+          <div class="prod-card-grid prod-card-grid--compact">${productCards || '<p class="muted">Nog geen producten.</p>'}</div>
+          <div class="settings-fold-actions">
+            <button class="btn btn-ghost btn-sm" id="addProduct" type="button">+ Nieuw product</button>
+            <button class="btn btn-ghost btn-sm" id="bulkEnsurePostersBtn" type="button" title="Maakt voor 3D-producten zonder poster een WebP-poster van de mockup">Vul ontbrekende 3D-posters</button>
+            <span class="muted compact" id="bulkEnsurePostersResult"></span>
+          </div>
+        </div>
       </div>
 
       <div class="prod-subtab-panel" data-prod-subtab-panel="kleuren">
@@ -3917,7 +4053,13 @@ function bindProduct3dUploadGrid(modal, ctx = {}) {
       }
     };
     draft.products = normalizeProducts(draft.products);
-    await persistFn('3D-bestanden opgeslagen');
+    const currentId = String(getPm3dProductId(modal) || draft.products[productIdx]?.id || '').trim();
+    const savedProduct = draft.products.find((row) => String(row?.id || '').trim() === currentId)
+      || draft.products[productIdx];
+    await persistFn('3D-bestanden opgeslagen', {
+      product: savedProduct,
+      previousId: currentId || savedProduct?.id
+    });
   };
 
   const upload3dAsset = async (fieldName, input, button, label, dropKind) => {
@@ -4473,6 +4615,8 @@ function openProductModal(productIdx, draft, globalCfg, rerenderFn, persistFn = 
   modal.id = 'prodEditModal';
   modal.className = 'modal-overlay';
   const mockupSrc = (p.mockupPath || '').replace(/^\/+/, '');
+  const designerMockupSrc = (p.designerMockupPath || '').replace(/^\/+/, '');
+  const designerOn = productDesignerEnabledDefault(p);
   modal.innerHTML = `
     <div class="modal-box prod-modal-box prod-modal-box--wide">
       <div class="prod-modal-header">
@@ -4519,6 +4663,27 @@ function openProductModal(productIdx, draft, globalCfg, rerenderFn, persistFn = 
               <input id="pmMockupPath" class="select-inline" value="${escAttr(p.mockupPath || '')}" placeholder="assets/tshirt_mockup.png" style="width:100%;margin-bottom:.4rem">
               <button type="button" class="btn btn-ghost btn-sm" id="pmMockupUploadBtn">📷 Upload mockup</button>
               <input type="file" id="pmMockupFile" accept="image/*" hidden>
+            </div>
+          </div>
+        </div>
+        <div class="prod-modal-section">
+          <h4 class="prod-modal-section-title">Designer</h4>
+          <p class="muted compact" style="margin:-.5rem 0 .75rem">Bepaal of dit product zichtbaar is in de designer en welke mockup daar gebruikt wordt.</p>
+          <label style="display:flex;align-items:center;gap:.4rem;font-size:.9rem;text-transform:none;letter-spacing:0;color:var(--text);margin-bottom:.85rem">
+            <input type="checkbox" id="pmDesignerEnabled" ${designerOn ? 'checked' : ''}> Tonen in designer
+          </label>
+          <div id="pmDesignerMockupBlock" style="display:flex;align-items:flex-start;gap:1rem">
+            <div id="pmDesignerMockupThumb">
+              ${designerMockupSrc ? `<img src="/${escAttr(designerMockupSrc)}" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border)" alt="" onerror="this.onerror=null;this.src='/assets/tshirt_mockup.png';">` : `<div style="width:64px;height:64px;border-radius:8px;border:2px dashed var(--border);display:flex;align-items:center;justify-content:center;font-size:1.4rem">🎨</div>`}
+            </div>
+            <div style="flex:1">
+              <input id="pmDesignerMockupPath" class="select-inline" value="${escAttr(p.designerMockupPath || '')}" placeholder="Leeg = winkel-mockup gebruiken" style="width:100%;margin-bottom:.4rem">
+              <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+                <button type="button" class="btn btn-ghost btn-sm" id="pmDesignerMockupUploadBtn">📷 Upload designer mockup</button>
+                <button type="button" class="btn btn-ghost btn-sm" id="pmDesignerMockupUseStoreBtn">↩ Winkel-mockup</button>
+              </div>
+              <p class="muted compact" id="pmDesignerMockupHint" style="margin:.45rem 0 0"></p>
+              <input type="file" id="pmDesignerMockupFile" accept="image/*" hidden>
             </div>
           </div>
         </div>
@@ -4577,9 +4742,10 @@ function openProductModal(productIdx, draft, globalCfg, rerenderFn, persistFn = 
     basis: '1. Basis',
     prijs: '2. Prijs',
     mockup: '3. Mockup',
-    '3d': '4. 3D mockup',
-    kleuren: '5. Kleuren',
-    maten: '6. Maten'
+    designer: '4. Designer',
+    '3d': '5. 3D mockup',
+    kleuren: '6. Kleuren',
+    maten: '7. Maten'
   };
   const getStepLabel = (section, idx) => {
     const wizardStep = String(section.dataset.wizardStep || '').toLowerCase();
@@ -4590,6 +4756,7 @@ function openProductModal(productIdx, draft, globalCfg, rerenderFn, persistFn = 
     if (raw.startsWith('basis')) return stepTitleMap.basis;
     if (raw.startsWith('prijs')) return stepTitleMap.prijs;
     if (raw.startsWith('mockup')) return stepTitleMap.mockup;
+    if (raw.startsWith('designer')) return stepTitleMap.designer;
     if (raw.startsWith('3d') || raw.includes('presentatie')) return stepTitleMap['3d'];
     if (raw.startsWith('kleuren')) return stepTitleMap.kleuren;
     if (raw.startsWith('maten')) return stepTitleMap.maten;
@@ -4676,6 +4843,8 @@ function openProductModal(productIdx, draft, globalCfg, rerenderFn, persistFn = 
     } catch (err) { NEB.toast(err.message || 'Mockup upload mislukt', 'error'); }
     finally { if (btn) { btn.disabled = false; btn.textContent = '📷 Upload mockup'; } e.target.value = ''; }
   });
+
+  bindDesignerMockupModalUi(modal, { productIdx, draft, isNew });
 
   bindProduct3dModalUi(modal, { productIdx, draft });
   bindProduct3dUploadGrid(modal, { isNew, productIdx, draft, persistFn });
@@ -4827,6 +4996,13 @@ function openProductModal(productIdx, draft, globalCfg, rerenderFn, persistFn = 
     const extraFeeRaw = parseFloat(modal.querySelector('#pmExtraFee')?.value || '');
     const sortOrderRaw = parseInt(modal.querySelector('#pmSortOrder')?.value || '10', 10);
 
+    const designerEnabled = !!modal.querySelector('#pmDesignerEnabled')?.checked;
+    const designerMockupPath = readDesignerMockupPathFromModal(modal);
+    if (designerEnabled && !effectiveDesignerMockupPathFromModal(modal)) {
+      NEB.toast('Designer vereist een mockup. Upload een designer mockup of stel de winkel-mockup in.', 'error');
+      return;
+    }
+
     const updated = {
       ...(isNew ? {} : draft.products[productIdx]),
       name,
@@ -4839,6 +5015,8 @@ function openProductModal(productIdx, draft, globalCfg, rerenderFn, persistFn = 
       extraDesignFee: Number.isFinite(extraFeeRaw) ? extraFeeRaw : null,
       sortOrder: Number.isFinite(sortOrderRaw) ? Math.max(0, Math.min(9999, sortOrderRaw)) : 10,
       mockupPath: (modal.querySelector('#pmMockupPath')?.value || '').trim() || 'assets/tshirt_mockup.png',
+      designerEnabled,
+      designerMockupPath,
       model3d: {
         enabled: !!modal.querySelector('#pmModel3dEnabled')?.checked,
         format: modal.querySelector('#pmModel3dFormat')?.value || 'glb',
@@ -4886,13 +5064,18 @@ function openProductModal(productIdx, draft, globalCfg, rerenderFn, persistFn = 
 
     const saveBtn = modal.querySelector('#prodModalSave');
     const oldText = saveBtn?.textContent || (isNew ? 'Product aanmaken' : 'Opslaan');
+    const previousId = isNew ? null : String(p?.id || updated.id || '').trim();
     try {
       if (saveBtn) {
         saveBtn.disabled = true;
         saveBtn.textContent = 'Opslaan...';
       }
       if (typeof persistFn === 'function') {
-        await persistFn(isNew ? 'Product aangemaakt' : 'Product opgeslagen');
+        await persistFn(isNew ? 'Product aangemaakt' : 'Product opgeslagen', {
+          product: updated,
+          isNew,
+          previousId
+        });
       } else {
         NEB.toast(isNew ? 'Product aangemaakt (lokaal concept)' : 'Product opgeslagen (lokaal concept)', 'success');
       }
@@ -5709,14 +5892,51 @@ function bindSettings(cfg) {
   if (wrap._settingsChangeHandler) wrap.removeEventListener('change', wrap._settingsChangeHandler);
 
   function applySavedConfig(out) {
-    const saved = out?.config || draft;
-    window.NEB_CONFIG = JSON.parse(JSON.stringify(saved));
+    const saved = out?.config || out;
+    if (!saved || typeof saved !== 'object') return;
+    const clone = JSON.parse(JSON.stringify(saved));
+    clone.products = normalizeProducts(clone.products || []);
+    Object.keys(draft).forEach((key) => { delete draft[key]; });
+    Object.assign(draft, clone);
+    window.NEB_CONFIG = JSON.parse(JSON.stringify(clone));
     NEB.applyBranding(window.NEB_CONFIG);
-    savedSnapshot = JSON.parse(JSON.stringify(saved));
-    savedSnapshot.products = normalizeProducts(savedSnapshot.products);
+    savedSnapshot = JSON.parse(JSON.stringify(clone));
   }
 
-  const persistDraftFromModal = async (successMsg = 'Instellingen opgeslagen') => {
+  const handlePersistError = (err) => {
+    if (err?.data?.code === 'POSTER_REQUIRED') {
+      const names = (err.data.products || []).map((p) => p.productName || p.productId).join(', ');
+      NEB.toast(`Poster verplicht voor 3D in shop: ${names || 'zie producten'}`, 'error');
+      return true;
+    }
+    return false;
+  };
+
+  const persistDraftFromModal = async (successMsg = 'Instellingen opgeslagen', opts = {}) => {
+    const productPayload = opts?.product && typeof opts.product === 'object' ? opts.product : null;
+    if (productPayload) {
+      try {
+        let out;
+        if (opts.isNew) {
+          out = await NEB.post('/api/admin/products', { product: productPayload });
+        } else {
+          const lookupId = String(opts.previousId || productPayload.id || '').trim();
+          if (!lookupId) throw new Error('Product-ID ontbreekt');
+          out = await NEB.put(`/api/admin/products/${encodeURIComponent(lookupId)}`, { product: productPayload });
+        }
+        applySavedConfig(out);
+        if (Array.isArray(out.warnings) && out.warnings.length) {
+          NEB.toast(`${out.warnings.length} productwaarschuwing(en) in catalogus`, 'error');
+        }
+        updateAllTemplateVersionUI();
+        NEB.toast(successMsg, 'success');
+      } catch (err) {
+        if (handlePersistError(err)) return;
+        throw err;
+      }
+      return;
+    }
+
     captureFlatFields();
     try {
       const out = await NEB.put('/api/admin/config', draft);
@@ -5727,11 +5947,7 @@ function bindSettings(cfg) {
       updateAllTemplateVersionUI();
       NEB.toast(successMsg, 'success');
     } catch (err) {
-      if (err?.data?.code === 'POSTER_REQUIRED') {
-        const names = (err.data.products || []).map((p) => p.productName || p.productId).join(', ');
-        NEB.toast(`Poster verplicht voor 3D in shop: ${names || 'zie producten'}`, 'error');
-        return;
-      }
+      if (handlePersistError(err)) return;
       throw err;
     }
   };
@@ -5847,10 +6063,10 @@ function bindSettings(cfg) {
       return;
     }
     // Open product edit modal
-    const editProdBtn = t.closest?.('[data-edit-product]');
-    if (editProdBtn?.dataset?.editProduct != null) {
-      const idx = Number(editProdBtn.dataset.editProduct);
-      openProductModal(idx, draft, draft, rerender, persistDraftFromModal);
+    const editProdBtn = t.closest?.('[data-edit-product-id]');
+    if (editProdBtn?.dataset?.editProductId) {
+      const idx = (draft.products || []).findIndex((p) => String(p.id) === String(editProdBtn.dataset.editProductId));
+      if (idx >= 0) openProductModal(idx, draft, draft, rerender, persistDraftFromModal);
       return;
     }
     if (t.id === 'refreshIntegrationChecklist') {
@@ -6123,6 +6339,51 @@ function bindSettings(cfg) {
   wrap.addEventListener('click', clickHandler);
   wrap.addEventListener('input', inputHandler);
   wrap.addEventListener('change', inputHandler);
+
+  let dragProductId = null;
+  wrap.addEventListener('dragstart', (e) => {
+    const card = e.target.closest('.prod-card[draggable="true"]');
+    if (!card) return;
+    dragProductId = String(card.dataset.productId || '');
+    card.classList.add('is-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', dragProductId);
+  });
+  wrap.addEventListener('dragend', () => {
+    wrap.querySelectorAll('.prod-card').forEach((card) => card.classList.remove('is-dragging', 'is-dragover'));
+    dragProductId = null;
+  });
+  wrap.addEventListener('dragover', (e) => {
+    const card = e.target.closest('.prod-card[draggable="true"]');
+    if (!card) return;
+    e.preventDefault();
+    wrap.querySelectorAll('.prod-card').forEach((el) => {
+      el.classList.toggle('is-dragover', el === card && String(el.dataset.productId) !== dragProductId);
+    });
+  });
+  wrap.addEventListener('drop', async (e) => {
+    const target = e.target.closest('.prod-card[draggable="true"]');
+    if (!target || !dragProductId || String(target.dataset.productId) === dragProductId) return;
+    e.preventDefault();
+    const products = sortCatalogProducts(draft.products || []);
+    const from = products.findIndex((p) => String(p.id) === dragProductId);
+    const to = products.findIndex((p) => String(p.id) === String(target.dataset.productId));
+    if (from < 0 || to < 0) return;
+    const [moved] = products.splice(from, 1);
+    products.splice(to, 0, moved);
+    products.forEach((p, idx) => { p.sortOrder = (idx + 1) * 10; });
+    draft.products = normalizeProducts(products);
+    wrap.querySelectorAll('.prod-card').forEach((card) => card.classList.remove('is-dragging', 'is-dragover'));
+    try {
+      const out = await NEB.put('/api/admin/config', draft);
+      applySavedConfig(out);
+      NEB.toast('Productvolgorde opgeslagen', 'success');
+    } catch (err) {
+      NEB.toast(err.message || 'Volgorde opslaan mislukt', 'error');
+    }
+    rerender();
+  });
+
   updateAllTemplateVersionUI();
 
   function rerender() {
@@ -6237,6 +6498,8 @@ function bindSettings(cfg) {
       name: String(p.name || `Product ${idx + 1}`).trim(),
       description: String(p.description || ''),
       mockupPath: String(p.mockupPath || 'assets/tshirt_mockup.png').trim() || 'assets/tshirt_mockup.png',
+      designerEnabled: p?.designerEnabled === true ? true : (p?.designerEnabled === false ? false : undefined),
+      designerMockupPath: String(p?.designerMockupPath || '').trim().replace(/^\/+/, ''),
       priceMultiplier: Math.max(0.1, Number(p.priceMultiplier) || 1),
       extraDesignFeeMultiplier: Math.max(0, Number(p.extraDesignFeeMultiplier) || 1),
       sizes: Array.isArray(p.sizes) ? p.sizes : [],

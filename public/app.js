@@ -150,6 +150,14 @@ const NEB = (() => {
     config: () => json('/api/config'),
 
     fmtEUR: (n) => '€' + (Number(n) || 0).toFixed(2).replace('.', ','),
+    sortCatalogProducts(products) {
+      return [...(Array.isArray(products) ? products : [])].sort((a, b) => {
+        const ao = Number.isFinite(Number(a?.sortOrder)) ? Number(a.sortOrder) : 9999;
+        const bo = Number.isFinite(Number(b?.sortOrder)) ? Number(b.sortOrder) : 9999;
+        if (ao !== bo) return ao - bo;
+        return String(a?.name || '').localeCompare(String(b?.name || ''), 'nl');
+      });
+    },
     fmtDate: (s) => {
       if (!s) return '';
       const d = new Date(s.includes('T') ? s : s.replace(' ', 'T') + 'Z');
@@ -233,15 +241,22 @@ const NEB = (() => {
       return (user.email || '?')[0].toUpperCase();
     },
 
+    navUserSlot() {
+      return document.querySelector('.digitify-site-header [data-nav-user]')
+        || document.querySelector('.digitify-header__auth [data-nav-user]')
+        || document.querySelector('[data-nav-user]');
+    },
+
     async paintNav(opts = {}) {
-      const slot = document.querySelector('[data-nav-user]');
+      const slot = this.navUserSlot();
       if (!slot) return;
       const user = window.NEB_USER || await this.me().catch(() => null);
       if (!user) {
         slot.innerHTML = `
-          <a class="nav-link-cta" href="/login">Inloggen</a>
-          <a class="nav-link-cta nav-link-solid" href="/register">Registreren</a>`;
-        return;
+          <a class="digitify-header__auth-link" href="/login">Inloggen</a>
+          <a class="digitify-header__auth-link digitify-header__auth-link--solid" href="/register">Account</a>`;
+        await this.paintCart();
+        return null;
       }
       const isStaff = user.role === 'OWNER' || user.role === 'ADMIN';
       slot.innerHTML = `
@@ -254,7 +269,7 @@ const NEB = (() => {
           <div class="menu">
             <a href="/dashboard">Mijn bestellingen <span class="role-badge">${user.role}</span></a>
             <a href="/cart">Winkelmand</a>
-            <a href="/account">Account</a>
+            <a href="/account">Accountinstellingen</a>
             ${isStaff ? `
             <div class="divider"></div>
             <a href="/admin">Bestellingen</a>
@@ -447,12 +462,13 @@ const NEB = (() => {
       const slot = document.querySelector('[data-cart-icon]');
       if (!slot) return;
       const user = window.NEB_USER || await this.me().catch(() => null);
-      if (!user) { slot.innerHTML = ''; return; }
       let count = 0;
-      try {
-        const { items } = await this.get('/api/cart');
-        count = (items || []).reduce((s, i) => s + (i.qty || 0), 0);
-      } catch {}
+      if (user) {
+        try {
+          const { items } = await this.get('/api/cart');
+          count = (items || []).reduce((s, i) => s + (i.qty || 0), 0);
+        } catch {}
+      }
       slot.innerHTML = `
         <a class="nav-cart" href="/cart" title="Winkelmand" aria-label="Winkelmand">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></svg>

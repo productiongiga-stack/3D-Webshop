@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="digitify-shell-boot.js"></script>
   <title>Digitify Webshop — NFC & LED producten</title>
   <meta name="description" content="Digitify webshop — NFC-tags, LED lichtbakken en smart marketingproducten met 3D preview.">
   <meta property="og:type" content="website">
@@ -11,10 +12,10 @@
   <meta property="og:image" content="/assets/products/digitify/led-lichtbak-kabel/poster.png">
   <meta property="og:url" content="/">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="NEBULOUS - 3D product webshop">
-  <meta name="twitter:description" content="Bekijk producten in 3D, kies je variant en bestel direct of met goedkeuring.">
-  <meta name="twitter:image" content="/assets/tshirt_mockup.png">
-  <script type="application/ld+json" id="seoJsonLd">{"@context":"https://schema.org","@type":"Product","name":"3D product webshop","description":"Bekijk producten in 3D en bestel online.","brand":{"@type":"Brand","name":"NEBULOUS"},"image":["/assets/tshirt_mockup.png"],"offers":{"@type":"AggregateOffer","priceCurrency":"EUR","lowPrice":"34.95","availability":"https://schema.org/InStock"},"url":"/"}</script>
+  <meta name="twitter:title" content="Digitify Webshop">
+  <meta name="twitter:description" content="Bekijk NFC-tags, LED lichtbakken en meer in 3D. Bestel direct online.">
+  <meta name="twitter:image" content="/assets/products/digitify/led-lichtbak-kabel/poster.png">
+  <script type="application/ld+json" id="seoJsonLd">{"@context":"https://schema.org","@type":"Product","name":"Digitify Webshop","description":"NFC-tags, LED lichtbakken en smart marketingproducten.","brand":{"@type":"Brand","name":"Digitify"},"image":["/assets/products/digitify/led-lichtbak-kabel/poster.png"],"offers":{"@type":"AggregateOffer","priceCurrency":"EUR","lowPrice":"9.95","availability":"https://schema.org/InStock"},"url":"/"}</script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -25,7 +26,7 @@
 <body class="storefront-page theme-light digitify-shop-body" data-nav="producten">
 
   <main>
-    <section class="storefront-hero" id="productHero">
+    <section class="storefront-hero" id="productHero" data-hero-mode="loading">
       <div class="storefront-hero-shade" aria-hidden="true"></div>
       <div class="storefront-hero-inner">
         <div class="storefront-hero-copy">
@@ -38,26 +39,29 @@
           <div class="storefront-hero-actions">
             <button class="hero-cta hero-cta--storefront" id="heroAddToCart" type="button">Toevoegen aan winkelmand</button>
             <a class="hero-secondary-btn" href="#productOptions">Bekijk opties</a>
-            <a class="hero-secondary-btn hero-secondary-btn--designer" id="heroDesignLink" href="/designer">Ontwerp op mockup</a>
+            <a class="hero-secondary-btn hero-secondary-btn--designer" id="heroDesignLink" href="/designer" hidden>Ontwerp op mockup</a>
           </div>
         </div>
         <div class="storefront-hero-showcase" id="storefrontHeroShowcase" aria-label="Productvoorbeeld">
-          <div class="storefront-hero-stage" data-media-mode="2d" aria-hidden="true">
+          <div class="storefront-hero-stage" data-media-mode="loading" aria-hidden="true">
             <div class="storefront-media-layer storefront-media-layer--3d">
               <canvas id="hero3dCanvas"></canvas>
             </div>
             <div class="storefront-media-layer storefront-media-layer--2d">
-              <img id="hero3dPoster" class="hero-3d-poster" src="/assets/tshirt_mockup.png" alt="">
+              <img id="hero3dPoster" class="hero-3d-poster" src="" alt="" hidden>
             </div>
           </div>
           <div class="hero-showcase-floor" aria-hidden="true"></div>
           <div class="hero-showcase-vignette" aria-hidden="true"></div>
-          <div class="hero-showcase-loader" id="hero3dLoader" hidden>
+          <div class="hero-showcase-loader" id="hero3dLoader">
             <span class="hero-showcase-loader-ring"></span>
             <span>3D laden…</span>
           </div>
         </div>
       </div>
+      <nav class="storefront-hero-3d-dock" id="hero3dDock" aria-label="Kies een 3D product" hidden>
+        <div class="storefront-hero-3d-dock-track" id="hero3dDockTrack"></div>
+      </nav>
     </section>
 
     <section class="storefront-options" id="productOptions">

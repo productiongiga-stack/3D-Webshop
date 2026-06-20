@@ -278,14 +278,45 @@ function _nebMain() {
         return /\bmock\b/i.test(filename);
     }
 
+    function getDesignerMockupPath(product) {
+        const designerPath = String(product?.designerMockupPath || '').trim().replace(/^\/+/, '');
+        if (designerPath) return designerPath;
+        return String(product?.mockupPath || '').trim().replace(/^\/+/, '');
+    }
+
+    function productHasPerColorMockups(product) {
+        return Object.values(product?.colorData || {}).some((entry) => String(entry?.mockupPath || '').trim());
+    }
+
+    function productUsesGarmentTint(product) {
+        const p = product || getSelectedProduct();
+        if (productHasPerColorMockups(p)) return false;
+        const mockPath = getDesignerMockupPath(p).toLowerCase();
+        if (mockPath.includes('tshirt') || mockPath.endsWith('tshirt_mockup.png')) return true;
+        return false;
+    }
+
+    function productSupportsColorSelection(product) {
+        return productHasPerColorMockups(product) || productUsesGarmentTint(product);
+    }
+
     function isEditableProduct(product) {
         return assetHasMockName(product?.mockupPath)
             || Object.values(product?.colorData || {}).some((entry) => assetHasMockName(entry?.mockupPath));
     }
 
+    function isDesignerCatalogProduct(product) {
+        if (!product || product.enabled === false) return false;
+        if (product.designerEnabled !== true) return false;
+        return !!getDesignerMockupPath(product);
+    }
+
     function getCatalogProducts() {
         const cfgProducts = Array.isArray(_cfg().products) ? _cfg().products : [];
-        const enabled = cfgProducts.filter(p => p && p.enabled !== false && isEditableProduct(p));
+        const sorted = window.NEB?.sortCatalogProducts
+            ? NEB.sortCatalogProducts(cfgProducts)
+            : cfgProducts;
+        const enabled = sorted.filter(p => p && isDesignerCatalogProduct(p));
         if (enabled.length) return enabled;
         return [{
             id: 'fallback-product',
@@ -404,7 +435,7 @@ function _nebMain() {
         const p = product || getSelectedProduct();
         state.productId = String(p?.id || 'tshirt');
         state.productName = String(p?.name || 'Product');
-        state.productMockupPath = String(p?.mockupPath || 'assets/tshirt_mockup.png');
+        state.productMockupPath = getDesignerMockupPath(p) || 'assets/tshirt_mockup.png';
         state.productPriceMultiplier = Math.max(0.1, Number(p?.priceMultiplier) || 1);
         state.productExtraFeeMultiplier = Math.max(0, Number(p?.extraDesignFeeMultiplier) || 1);
         // Prijsmatrix per product
@@ -420,6 +451,7 @@ function _nebMain() {
             el.classList.toggle('active', String(el.dataset.productId || '') === state.productId);
             el.setAttribute('aria-checked', String(String(el.dataset.productId || '') === state.productId));
         });
+        syncHomepageProductRailActive();
         if (productDescription) {
             const desc = String(p?.description || '').trim();
             productDescription.textContent = desc || 'Kies het materiaal waarvoor je dit ontwerp wil gebruiken.';
@@ -444,7 +476,7 @@ function _nebMain() {
         if (!activeProductBadge) return;
         const p = product || getSelectedProduct();
         const name = String(p?.name || state.productName || 'Product');
-        const path = String(p?.mockupPath || state.productMockupPath || 'assets/tshirt_mockup.png').trim().replace(/^\/+/, '');
+        const path = String(getDesignerMockupPath(p) || state.productMockupPath || 'assets/tshirt_mockup.png').trim().replace(/^\/+/, '');
         const src = '/' + (path || 'assets/tshirt_mockup.png');
         activeProductBadge.innerHTML = `
             <img class="apb-thumb" src="${escapeHtml(src)}" alt="${escapeHtml(name)}">
@@ -474,7 +506,7 @@ function _nebMain() {
                 const price = Math.max(0, Number(_cfg().pricing?.basePrice || 0) * mul);
                 return `
                     <button class="product-card" type="button" data-product-id="${id}" role="radio" aria-checked="false" title="${escapeHtml(String(p.name || 'Product'))}">
-                        <span class="pc-media"><img src="${escapeHtml(safePath(p.mockupPath))}" alt="${escapeHtml(String(p.name || 'Product'))}"></span>
+                        <span class="pc-media"><img src="${escapeHtml(safePath(getDesignerMockupPath(p)))}" alt="${escapeHtml(String(p.name || 'Product'))}"></span>
                         <span class="pc-name">${escapeHtml(String(p.name || 'Product'))}</span>
                         <span class="pc-meta">${escapeHtml(fmtEUR(price))}${mul !== 1 ? ` · x${mul.toFixed(2)}` : ''}</span>
                     </button>
@@ -1101,10 +1133,16 @@ function _nebMain() {
 
     function applyProductColorScope(product, opts = {}) {
         if (!colorSwatches.length) return;
+        const supportsColor = productSupportsColorSelection(product);
         const allowedHexes = getProductColorHexes(product);
         let visibleCount = 0;
 
         colorSwatches.forEach((sw) => {
+            if (!supportsColor) {
+                sw.hidden = true;
+                sw.disabled = true;
+                return;
+            }
             const hex = normalizeHex6(sw.dataset.color);
             const allowed = !allowedHexes.size || (hex && allowedHexes.has(hex));
             sw.hidden = !allowed;
@@ -1112,7 +1150,7 @@ function _nebMain() {
             if (allowed) visibleCount += 1;
         });
 
-        if (!visibleCount) {
+        if (!visibleCount && supportsColor) {
             colorSwatches.forEach((sw) => {
                 sw.hidden = false;
                 sw.disabled = false;
@@ -1199,6 +1237,8 @@ function _nebMain() {
         const colorHex = String(state.color || '').toLowerCase();
         const rgb = hexToRgb(colorHex);
         const hsl = rgb ? rgbToHsl(rgb.r, rgb.g, rgb.b) : null;
+        const product = getSelectedProduct();
+        const usesGarmentTint = productUsesGarmentTint(product);
         const baseFilter = baseShadeFilters[colorHex] || 'brightness(1) contrast(1)';
 
         if (mockupBase) {
@@ -1214,15 +1254,15 @@ function _nebMain() {
             const shadow = isWhiteTone
                 ? 'drop-shadow(0 14px 34px rgba(0,0,0,.20))'
                 : 'drop-shadow(0 20px 50px rgba(0,0,0,.45))';
-            // Als kleurspecifieke mockup: geen kleurfilter nodig (afbeelding is al de juiste kleur)
-            const filterStr = colorMockupPath ? shadow : `${shadow} ${baseFilter}`;
+            const filterStr = (colorMockupPath || !usesGarmentTint)
+                ? shadow
+                : `${shadow} ${baseFilter}`;
             mockupBase.style.filter = filterStr;
         }
 
         if (!shirtTintOverlay) return;
-        // Geen tint overlay bij kleurspecifieke mockup
         const hasColorMockup = !!(state.productColorData || {})[colorHex]?.mockupPath;
-        if (hasColorMockup || !rgb || !hsl) {
+        if (hasColorMockup || !usesGarmentTint || !rgb || !hsl) {
             shirtTintOverlay.style.opacity = '0';
             schedulePreviewModalRefresh();
             return;
@@ -1561,15 +1601,19 @@ function _nebMain() {
 
         // Draw base mockup with realistic tinting (same as live preview)
         const colorHex = String(state.color || '').toLowerCase();
+        const usesGarmentTint = productUsesGarmentTint(getSelectedProduct());
+        const colorMockupPath = (state.productColorData || {})[colorHex]?.mockupPath;
         const baseFilter = baseShadeFilters[colorHex] || 'brightness(1) contrast(1)';
         const rgb = hexToRgb(colorHex);
         const hsl = rgb ? rgbToHsl(rgb.r, rgb.g, rgb.b) : null;
         ctx.save();
-        ctx.filter = baseFilter;
+        if (usesGarmentTint && !colorMockupPath) ctx.filter = baseFilter;
         ctx.drawImage(mockupBase, 0, 0, baseW, baseH);
         ctx.restore();
 
-        const tintOpacity = computeShirtTintOpacity(colorHex, hsl);
+        const tintOpacity = (usesGarmentTint && !colorMockupPath)
+            ? computeShirtTintOpacity(colorHex, hsl)
+            : 0;
         if (tintOpacity > 0 && rgb) {
             const tintCanvas = document.createElement('canvas');
             tintCanvas.width = baseW;
@@ -2081,7 +2125,19 @@ async function placeOrder() {
         });
     }, { passive: true });
 
-    // ── Homepage product picker ──
+    // ── Compact product rail (designer page) ──
+    let homepageProductsBound = false;
+
+    function syncHomepageProductRailActive() {
+        const container = $('#homepageProducts');
+        if (!container) return;
+        container.querySelectorAll('.hp-product-card[data-product-id]').forEach((el) => {
+            const on = String(el.dataset.productId || '') === String(state.productId || '');
+            el.classList.toggle('active', on);
+            el.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+    }
+
     function renderHomepageProducts() {
         const container = $('#homepageProducts');
         if (!container) return;
@@ -2092,45 +2148,32 @@ async function placeOrder() {
             const p = String(raw || '').trim();
             return p ? '/' + p.replace(/^\/+/, '') : '/assets/tshirt_mockup.png';
         };
-        container.innerHTML = products.map(p => {
+        container.innerHTML = products.map((p) => {
             const mul = Math.max(0.1, Number(p.priceMultiplier) || 1);
             const fromPrice = p.basePrice != null ? p.basePrice : globalBasePrice * mul;
             const id = escapeHtml(String(p.id || ''));
-            const desc = String(p.description || 'Premium kwaliteit bedrukking.').trim();
-            return `<button class="hp-product-card reveal" data-product-id="${id}" type="button">
-                <div class="hp-pc-media"><img src="${escapeHtml(safePath(p.mockupPath))}" alt="${escapeHtml(String(p.name || ''))}"></div>
-                <div class="hp-pc-body">
-                    <h3 class="hp-pc-name">${escapeHtml(String(p.name || 'Product'))}</h3>
-                    <p class="hp-pc-desc">${escapeHtml(desc)}</p>
-                    <div class="hp-pc-footer">
-                        <span class="hp-pc-price">Vanaf ${fmtEUR(fromPrice)}</span>
-                        <span class="hp-pc-cta">Ontwerp nu
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="5 12 19 12"/><polyline points="12 5 19 12 12 19"/></svg>
-                        </span>
-                    </div>
-                </div>
+            const name = escapeHtml(String(p.name || 'Product'));
+            const active = String(p.id || '') === String(state.productId || '') ? ' active' : '';
+            return `<button class="hp-product-card hp-product-card--rail${active}" data-product-id="${id}" type="button" title="${name}" aria-pressed="${active ? 'true' : 'false'}">
+                <span class="hp-rail-thumb"><img src="${escapeHtml(safePath(getDesignerMockupPath(p)))}" alt="${name}"></span>
+                <span class="hp-rail-copy">
+                    <span class="hp-rail-name">${name}</span>
+                    <span class="hp-rail-price">${escapeHtml(fmtEUR(fromPrice))}</span>
+                </span>
             </button>`;
         }).join('');
 
-        // Scroll reveal for new cards
-        container.querySelectorAll('.reveal').forEach(el => {
-            el.classList.add('reveal');
-            revealObs?.observe(el);
-        });
-
-        container.addEventListener('click', (e) => {
-            const card = e.target.closest('.hp-product-card[data-product-id]');
-            if (!card) return;
-            const productId = card.dataset.productId;
-            const product = products.find(p => String(p.id) === productId) || products[0];
-            applySelectedProduct(product);
-            const designerEl = document.getElementById('designer');
-            if (designerEl) {
-                const navH = document.querySelector('.nav')?.offsetHeight || 72;
-                const y = designerEl.getBoundingClientRect().top + window.scrollY - navH - 16;
-                window.scrollTo({ top: y, behavior: 'smooth' });
-            }
-        });
+        if (!homepageProductsBound) {
+            container.addEventListener('click', (e) => {
+                const card = e.target.closest('.hp-product-card[data-product-id]');
+                if (!card) return;
+                const productId = card.dataset.productId;
+                const list = getCatalogProducts();
+                const product = list.find((p) => String(p.id) === String(productId)) || list[0];
+                applySelectedProduct(product);
+            });
+            homepageProductsBound = true;
+        }
     }
 
     // Wis draft bij navigeren weg van de pagina zodat gebruiker altijd op Step 1 start

@@ -110,7 +110,8 @@
 
     // ── Footer brand tagline ────────────────────────────────────────────
     if (cfg.brand?.tagline) {
-      const fb = document.querySelector('.footer-brand p');
+      const fb = document.querySelector('.digitify-footer__tagline span[data-brand-tagline]')
+        || document.querySelector('[data-brand-tagline]');
       if (fb) fb.textContent = cfg.brand.tagline;
     }
 

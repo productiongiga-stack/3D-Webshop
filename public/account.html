@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="/digitify-shell-boot.js"></script>
 <title>Account — Digitify</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -11,29 +12,7 @@
 <link rel="stylesheet" href="/app.css">
 <link rel="stylesheet" href="/digitify-shell.css">
 </head>
-<body class="theme-light digitify-shop-body" data-page-title="Account">
-  <div class="ambient-bg">
-    <div class="ambient-orb orb-1"></div>
-    <div class="ambient-orb orb-2"></div>
-    <div class="ambient-orb orb-3"></div>
-  </div>
-
-  <nav class="nav" id="nav">
-    <div class="nav-inner">
-      <a href="/" class="logo"><span class="logo-mark">&#x2726;</span><span data-brand-name>Digitify</span></a>
-      <div class="nav-links">
-        <a href="/designer" class="nav-link">Designer</a>
-        <a href="/dashboard" class="nav-link">Dashboard</a>
-        <a href="/account" class="nav-link active">Account</a>
-      </div>
-      <div class="nav-right" style="display:flex;gap:.5rem;align-items:center">
-        <span data-theme-switch></span>
-        <span data-cart-icon></span>
-        <span data-nav-user style="display:flex;gap:.5rem;align-items:center"></span>
-      </div>
-    </div>
-  </nav>
-
+<body class="theme-light digitify-shop-body account-page" data-nav="account" data-page-title="Account">
   <main class="app-shell">
     <div class="app-main medium">
       <div class="page-head">
@@ -194,6 +173,8 @@
     </div>
   </main>
 
+  <div id="siteFooterMount"></div>
+
   <script src="/app.js"></script>
   <script src="/digitify-shell.js"></script>
   <script>
@@ -219,7 +200,9 @@
       const user = await NEB.requireAuth();
       if (!user) return;
       window.NEB_USER = user;
-      await NEB.paintNav();
+      if (window.DigitifyShell?.waitForHeaderSlot) await DigitifyShell.waitForHeaderSlot();
+      if (window.DigitifyShell?.refreshAuth) await DigitifyShell.refreshAuth();
+      else await NEB.paintNav();
 
       ['firstName','lastName','email','phone','address','postcode','city'].forEach(k => {
         const el = document.getElementById(k);

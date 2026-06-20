@@ -16,7 +16,27 @@ const QRCode = require('qrcode');
 const archiver = require('archiver');
 const crypto = require('crypto');
 
-const { db, getConfig, setSetting, getSetting, ensureOwner, getOrCreateSecret, sortSizes, encryptSetting, decryptSetting, initDatabase, USE_PG, sanitizeProducts } = require('./db');
+const dbModule = require('./db');
+const db = new Proxy({}, {
+  get(_target, prop) {
+    const live = dbModule.db;
+    const value = live[prop];
+    return typeof value === 'function' ? value.bind(live) : value;
+  }
+});
+const {
+  getConfig,
+  setSetting,
+  getSetting,
+  ensureOwner,
+  getOrCreateSecret,
+  sortSizes,
+  encryptSetting,
+  decryptSetting,
+  initDatabase,
+  USE_PG,
+  sanitizeProducts
+} = dbModule;
 const { collectProductsWarnings } = require('./lib/product-warnings');
 const { securityHeadersMiddleware } = require('./lib/security-headers');
 const { mirrorPublicAssetIfConfigured } = require('./lib/asset-storage');
@@ -119,7 +139,7 @@ async function boot() {
     await initDatabase();
     const secret = await getOrCreateSecret();
     if (!UPLOAD_SIGNING_SECRET) UPLOAD_SIGNING_SECRET = secret.trim();
-    if (USE_PG) {
+    if (USE_PG && !dbModule.dbDegraded && pgAdapter) {
       _sessionPool = pgAdapter.getPool();
       _sessionStore = new PgSessionStore({
         pool: _sessionPool,
@@ -4853,12 +4873,12 @@ function toAdminConfigPayload(cfg = {}) {
   return safe;
 }
 
-app.get('/api/admin/config', requireAuth, requireRole('OWNER'), async (_req, res) => {
+app.get('/api/admin/config', requireAuth, requireRole('OWNER', 'ADMIN'), async (_req, res) => {
   const cfg = await getConfig();
   res.json(toAdminConfigPayload(cfg));
 });
 
-app.put('/api/admin/config', requireAuth, requireRole('OWNER'), async (req, res) => {
+app.put('/api/admin/config', requireAuth, requireRole('OWNER', 'ADMIN'), async (req, res) => {
   const cfg = req.body || {};
   const before = await getConfig();
   const cleanText = (v, max = 180) => String(v == null ? '' : v).trim().slice(0, max);
@@ -5088,6 +5108,90 @@ app.put('/api/admin/config', requireAuth, requireRole('OWNER'), async (req, res)
   res.json({ ok: true, config: toAdminConfigPayload(saved), warnings: productWarnings });
 });
 
+async function saveCatalogProducts(nextProducts, beforeConfig) {
+  const before = beforeConfig || await getConfig();
+  const sanitized = sanitizeProducts(Array.isArray(nextProducts) ? nextProducts : []);
+  const posterGaps = validateProductsPosterPolicy(sanitized);
+  if (posterGaps.length) {
+    const err = new Error('3D-producten in de shop vereisen een poster. Upload of genereer een poster per product.');
+    err.status = 400;
+    err.code = 'POSTER_REQUIRED';
+    err.products = posterGaps;
+    throw err;
+  }
+  await setSetting('config', { ...before, products: sanitized });
+  const saved = await getConfig();
+  return {
+    saved,
+    warnings: collectProductsWarnings(saved.products || [])
+  };
+}
+
+app.post('/api/admin/products', requireAuth, requireRole('OWNER', 'ADMIN'), async (req, res) => {
+  try {
+    const incoming = req.body?.product && typeof req.body.product === 'object' ? req.body.product : req.body;
+    if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+      return res.status(400).json({ error: 'product object vereist' });
+    }
+    const before = await getConfig();
+    const products = Array.isArray(before.products) ? [...before.products] : [];
+    const nextId = String(incoming.id || incoming.name || '').trim().toLowerCase();
+    if (!nextId) return res.status(400).json({ error: 'Product-ID of naam is verplicht' });
+    if (products.some((p) => String(p?.id || '').trim().toLowerCase() === nextId)) {
+      return res.status(400).json({ error: 'Product-ID bestaat al' });
+    }
+    const { saved, warnings } = await saveCatalogProducts([...products, incoming], before);
+    const product = (saved.products || []).find((p) => String(p?.id || '').trim().toLowerCase() === nextId) || null;
+    await logAuditFromReq(req, {
+      action: 'PRODUCT_CREATED',
+      entityType: 'product',
+      entityId: product?.id || nextId,
+      summary: `Product aangemaakt: ${product?.name || nextId}`
+    });
+    res.json({ ok: true, product, config: toAdminConfigPayload(saved), warnings });
+  } catch (err) {
+    if (err.code === 'POSTER_REQUIRED') {
+      return res.status(400).json({ error: err.message, code: err.code, products: err.products });
+    }
+    res.status(err.status || 500).json({ error: err.message || 'Product aanmaken mislukt' });
+  }
+});
+
+app.put('/api/admin/products/:productId', requireAuth, requireRole('OWNER', 'ADMIN'), async (req, res) => {
+  try {
+    const lookupId = String(req.params.productId || '').trim().toLowerCase();
+    const incoming = req.body?.product && typeof req.body.product === 'object' ? req.body.product : req.body;
+    if (!lookupId) return res.status(400).json({ error: 'productId ontbreekt' });
+    if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+      return res.status(400).json({ error: 'product object vereist' });
+    }
+    const before = await getConfig();
+    const products = Array.isArray(before.products) ? [...before.products] : [];
+    const idx = products.findIndex((p) => String(p?.id || '').trim().toLowerCase() === lookupId);
+    if (idx < 0) return res.status(404).json({ error: 'Product niet gevonden' });
+    const nextId = String(incoming.id || products[idx].id || '').trim().toLowerCase();
+    if (!nextId) return res.status(400).json({ error: 'Product-ID is verplicht' });
+    if (products.some((p, i) => i !== idx && String(p?.id || '').trim().toLowerCase() === nextId)) {
+      return res.status(400).json({ error: 'Product-ID bestaat al' });
+    }
+    const next = products.map((p, i) => (i === idx ? { ...p, ...incoming, id: incoming.id || p.id } : p));
+    const { saved, warnings } = await saveCatalogProducts(next, before);
+    const product = (saved.products || []).find((p) => String(p?.id || '').trim().toLowerCase() === nextId) || null;
+    await logAuditFromReq(req, {
+      action: 'PRODUCT_UPDATED',
+      entityType: 'product',
+      entityId: product?.id || nextId,
+      summary: `Product bijgewerkt: ${product?.name || nextId}`
+    });
+    res.json({ ok: true, product, config: toAdminConfigPayload(saved), warnings });
+  } catch (err) {
+    if (err.code === 'POSTER_REQUIRED') {
+      return res.status(400).json({ error: err.message, code: err.code, products: err.products });
+    }
+    res.status(err.status || 500).json({ error: err.message || 'Product opslaan mislukt' });
+  }
+});
+
 registerClientLogRoutes(app, { requireAuth, requireRole });
 registerPublicConfigRoutes(app, { getConfig, resolveAppBaseUrl: getAppBaseUrl });
 registerProduct3dRoutes(app, {
@@ -5118,7 +5222,8 @@ registerHealthRoutes(app, {
   getConfig,
   getStripeClient,
   readStoredUpload,
-  uploadDir: UPLOAD_DIR
+  uploadDir: UPLOAD_DIR,
+  getDbDegraded: () => dbModule.dbDegraded
 });
 registerAdminOrdersBulkRoutes(app, {
   requireAuth,
@@ -5704,6 +5809,26 @@ app.get('/', async (_req, res) => {
 
 app.get('/designer', async (_req, res) => {
   res.sendFile(DESIGNER_HTML_PATH);
+});
+
+const SHOP_CORS_ORIGINS = new Set([
+  'https://digitify.be',
+  'https://www.digitify.be',
+  'http://localhost:8080',
+  'http://127.0.0.1:8080'
+]);
+app.use('/assets', (req, res, next) => {
+  const origin = String(req.headers.origin || '').trim();
+  if (origin && SHOP_CORS_ORIGINS.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    return res.status(204).end();
+  }
+  next();
 });
 
 app.use(express.static(PUBLIC_DIR));

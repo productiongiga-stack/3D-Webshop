@@ -1,50 +1,6 @@
 (function () {
   let shopCategoryFilter = 'all';
 
-  const FOOTER_HTML = `
-    <footer class="footer">
-      <div class="footer-inner">
-        <div class="footer-top">
-          <div class="footer-brand">
-            <div class="footer-kicker">Digitify Webshop</div>
-            <div><span class="logo-mark">&#x2726;</span> <span data-brand-name>Digitify</span></div>
-            <p data-brand-tagline>Partner in Digital Solutions</p>
-          </div>
-          <div class="footer-cols">
-            <div>
-              <h5>Shop</h5>
-              <a href="/shop">Catalogus</a>
-              <a href="/">3D producten</a>
-              <a href="/prijzen">Prijzen</a>
-              <a href="/cart">Winkelmand</a>
-            </div>
-            <div>
-              <h5>Website</h5>
-              <a href="https://digitify.be/diensten/">Diensten</a>
-              <a href="https://digitify.be/cases/">Cases</a>
-              <a href="https://digitify.be/over-ons/">Over ons</a>
-              <a href="https://digitify.be/contact/">Contact</a>
-            </div>
-            <div>
-              <h5>Support</h5>
-              <a href="/support">Support</a>
-              <a href="/faq">FAQ</a>
-              <a href="/contact">Contact</a>
-              <a href="/verzending">Verzending</a>
-            </div>
-          </div>
-        </div>
-        <div class="footer-bottom">
-          <p>&copy; <span data-year></span> <span data-brand-name>Digitify</span>. Alle rechten voorbehouden.</p>
-          <div class="footer-meta-links">
-            <a href="/privacy">Privacy</a>
-            <a href="/voorwaarden">Voorwaarden</a>
-            <a href="https://digitify.be/">digitify.be</a>
-          </div>
-        </div>
-      </div>
-    </footer>`;
-
   function setActiveNav() {
     const current = document.body?.dataset?.nav || '';
     document.querySelectorAll('.nav-link[data-nav]').forEach((el) => {
@@ -60,14 +16,6 @@
     const tag = document.querySelector('[data-brand-tagline]');
     if (tag) tag.textContent = tagline;
     document.title = `${brandName} - ${document.body?.dataset?.pageTitle || 'Webshop'}`;
-  }
-
-  function renderFooter() {
-    const mount = document.getElementById('siteFooterMount');
-    if (!mount) return;
-    mount.insertAdjacentHTML('beforeend', FOOTER_HTML);
-    const yearEl = mount.querySelector('[data-year]');
-    if (yearEl) yearEl.textContent = String(new Date().getFullYear());
   }
 
   function escapeHtml(v) {
@@ -113,7 +61,9 @@
   function renderShopCards(cfg) {
     const host = document.getElementById('shopProducts');
     if (!host) return;
-    const products = filterProducts(Array.isArray(cfg?.products) ? cfg.products.filter((p) => p && p.enabled !== false) : []);
+    const products = window.NEB?.sortCatalogProducts
+      ? NEB.sortCatalogProducts(filterProducts(Array.isArray(cfg?.products) ? cfg.products.filter((p) => p && p.enabled !== false) : []))
+      : filterProducts(Array.isArray(cfg?.products) ? cfg.products.filter((p) => p && p.enabled !== false) : []);
     if (!products.length) {
       host.innerHTML = '<p class="muted">Geen producten in deze categorie.</p>';
       return;
@@ -137,7 +87,6 @@
 
   async function init() {
     NEB.initTheme();
-    renderFooter();
     setActiveNav();
     renderShopFilters();
     try {

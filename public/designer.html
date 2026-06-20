@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="digitify-shell-boot.js"></script>
     <title>Digitify Designer — Ontwerp op mockup</title>
     <meta name="description" content="Ontwerp je eigen NFC-producten, displaymateriaal en merkdragers met live preview en een naadloze Digitify shopflow.">
     <meta property="og:type" content="website">
@@ -26,29 +27,16 @@
 <!-- ============================================
          PRODUCTS - Product picker
          ============================================ -->
-    <section class="products-section" id="products">
-        <div class="products-inner">
-            <span class="section-eyebrow">Stap 1 &mdash; Kies je product</span>
-            <h2 class="section-title">Wat wil je <span class="gradient-text">bedrukken?</span></h2>
-            <p class="products-lead">Selecteer een product hieronder — de designer opent direct met jouw keuze klaarstaan.</p>
-            <div class="hp-products-grid" id="homepageProducts">
-                <div class="hp-product-skeleton"></div>
-                <div class="hp-product-skeleton"></div>
-                <div class="hp-product-skeleton"></div>
-            </div>
-        </div>
-    </section>
-
-    <!-- ============================================
-         DESIGNER - Main app section
-         ============================================ -->
     <section class="designer-section" id="designer">
         <div class="designer-header">
-            <span class="section-eyebrow">Product Designer</span>
+            <span class="section-eyebrow">Stap 1 &mdash; Kies je product</span>
             <h2 class="section-title">Creëer jouw <span class="gradient-text">unieke</span> product</h2>
+            <p class="designer-header-lead">Kies links je product en ontwerp direct op de mockup.</p>
         </div>
 
+        <div class="designer-workspace">
         <div class="designer-app">
+            <div class="designer-side">
             <!-- Left: Controls panel -->
             <div class="controls-panel">
                 <!-- Step indicator -->
@@ -264,6 +252,17 @@
                 </div>
             </div>
 
+            <aside class="designer-product-rail" aria-label="Productkeuze">
+                <span class="designer-product-rail__label">Product</span>
+                <div class="designer-product-rail__list" id="homepageProducts">
+                    <div class="hp-product-skeleton hp-product-skeleton--rail"></div>
+                    <div class="hp-product-skeleton hp-product-skeleton--rail"></div>
+                    <div class="hp-product-skeleton hp-product-skeleton--rail"></div>
+                    <div class="hp-product-skeleton hp-product-skeleton--rail"></div>
+                </div>
+            </aside>
+            </div>
+
             <!-- Right: 3D T-shirt preview -->
             <div class="preview-panel">
                 <div class="preview-canvas" id="previewCanvas">
@@ -290,6 +289,7 @@
                     </div>
                 </div>
             </div>
+        </div>
         </div>
     </section>
 

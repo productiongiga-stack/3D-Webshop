@@ -15,7 +15,8 @@ function registerHealthRoutes(app, deps) {
     getConfig,
     getStripeClient,
     readStoredUpload,
-    uploadDir
+    uploadDir,
+    getDbDegraded
   } = deps;
 
   app.get('/api/health', async (_req, res) => {
@@ -30,9 +31,16 @@ function registerHealthRoutes(app, deps) {
     const details = {};
 
     try {
+      const isDegraded = typeof getDbDegraded === 'function' ? !!getDbDegraded() : false;
       const dbRow = await db.prepare('SELECT 1 AS ok').get();
       if (!dbRow?.ok) throw new Error('DB check failed');
-      checks.database = 'ok';
+      checks.database = isDegraded ? 'degraded' : 'ok';
+      if (isDegraded) {
+        details.database = {
+          status: 'degraded',
+          detail: 'PostgreSQL niet bereikbaar — catalogus-only modus (fix DATABASE_URL voor orders/checkout)'
+        };
+      }
 
       const cfg = await getConfig();
       const storage = await checkStorageReachable(readStoredUpload, uploadDir);
@@ -51,13 +59,18 @@ function registerHealthRoutes(app, deps) {
       checks.stripe = stripe.status;
       details.stripe = stripe;
 
-      const reminderJob = await processInvoiceRemindersSafe(false);
-      const allCriticalOk = checks.database === 'ok' && checks.sample3d !== 'warn';
+      let reminderJob = { skipped: 'idle' };
+      try {
+        reminderJob = await processInvoiceRemindersSafe(false);
+      } catch (reminderErr) {
+        reminderJob = { skipped: 'unavailable', detail: reminderErr?.message || 'reminder check failed' };
+      }
+      const allCriticalOk = (checks.database === 'ok' || checks.database === 'degraded') && checks.sample3d !== 'warn';
 
       res.json({
         ok: allCriticalOk,
-        status: allCriticalOk ? 'healthy' : 'degraded',
-        service: 'nebulous-api',
+        status: checks.database === 'degraded' ? 'degraded' : (allCriticalOk ? 'healthy' : 'degraded'),
+        service: 'digitify-shop',
         version: APP_VERSION,
         now: now.toISOString(),
         uptimeSec: Math.floor((Date.now() - APP_STARTED_AT) / 1000),
@@ -71,7 +84,7 @@ function registerHealthRoutes(app, deps) {
       res.status(503).json({
         ok: false,
         status: 'unhealthy',
-        service: 'nebulous-api',
+        service: 'digitify-shop',
         version: APP_VERSION,
         now: now.toISOString(),
         uptimeSec: Math.floor((Date.now() - APP_STARTED_AT) / 1000),
