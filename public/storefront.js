@@ -690,14 +690,10 @@ function renderHero() {
   if (!product) return;
   const config = state.config || {};
   const price = productPrice(product);
-  const heroKicker = $('#heroProductKicker');
   const heroTitle = $('#heroProductTitle');
   const heroDescription = $('#heroProductDescription');
   const navBasePrice = $('#navBasePrice');
   const storefrontPrice = $('#storefrontPrice');
-  if (heroKicker) {
-    heroKicker.textContent = `${config.brand?.name || 'Digitify'} · ${product.category === '3d' || hasProductModel3d(product) ? '3D preview' : 'Product'}`;
-  }
   if (heroTitle) heroTitle.textContent = product.name || 'Product';
   if (heroDescription) {
     heroDescription.textContent = product.description || 'Bekijk dit product in 3D en bestel zonder uploadstap.';
@@ -712,12 +708,6 @@ function renderHero() {
   if (checkoutNote) checkoutNote.textContent = note;
   const facts = [
     { type: 'price', text: `Vanaf ${fmtEUR(price)}` },
-    {
-      type: 'approval',
-      text: String(config.checkout?.approvalMode || 'MANUAL').toUpperCase() === 'DIRECT'
-        ? 'Direct betalen mogelijk'
-        : 'Goedkeuring mogelijk'
-    },
     {
       type: 'delivery',
       text: config.pricing?.deliveryText ? `Levering: ${config.pricing.deliveryText}` : 'Online bestellen'
