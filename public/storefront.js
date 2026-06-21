@@ -725,7 +725,7 @@ function prepareSelectionPreview(product) {
     posterLayer?.classList.add('is-media-loading');
   }
   if (label) label.textContent = product.name || 'Product';
-  if (eyebrow) eyebrow.textContent = has3d ? 'Productafbeelding' : 'Productafbeelding';
+  if (eyebrow) eyebrow.textContent = 'Productafbeelding';
   wrap.dataset.previewMode = '2d';
   setSelectionStageMediaMode('2d');
   setSelection3dLoader(false);

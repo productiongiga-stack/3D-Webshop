@@ -2,6 +2,7 @@ const { getStorageMode } = require('../lib/asset-storage');
 const {
   checkStorageReachable,
   checkSample3dAsset,
+  checkSample3dCdnAsset,
   checkStripeConfigured,
   checkSmtpConfigured
 } = require('../lib/health-checks');
@@ -36,6 +37,7 @@ function registerHealthRoutes(app, deps) {
       database: 'error',
       storage: 'unknown',
       sample3d: 'unknown',
+      sample3dCdn: 'unknown',
       stripe: 'unknown',
       smtp: 'unknown'
     };
@@ -76,6 +78,10 @@ function registerHealthRoutes(app, deps) {
       checks.sample3d = sample3d.status === 'ok' ? 'ok' : (sample3d.status === 'skip' ? 'skip' : 'warn');
       details.sample3d = sample3d;
 
+      const sample3dCdn = await checkSample3dCdnAsset(cfg?.products);
+      checks.sample3dCdn = sample3dCdn.status === 'ok' ? 'ok' : (sample3dCdn.status === 'skip' ? 'skip' : 'warn');
+      details.sample3dCdn = sample3dCdn;
+
       const smtp = checkSmtpConfigured(cfg);
       checks.smtp = smtp.status;
       details.smtp = smtp;
@@ -90,7 +96,9 @@ function registerHealthRoutes(app, deps) {
       } catch (reminderErr) {
         reminderJob = { skipped: 'unavailable', detail: reminderErr?.message || 'reminder check failed' };
       }
-      const allCriticalOk = (checks.database === 'ok' || checks.database === 'degraded') && checks.sample3d !== 'warn';
+      const allCriticalOk = (checks.database === 'ok' || checks.database === 'degraded')
+        && checks.sample3d !== 'warn'
+        && checks.sample3dCdn !== 'warn';
 
       res.json({
         ok: allCriticalOk,
