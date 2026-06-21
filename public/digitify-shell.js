@@ -16,20 +16,64 @@
   }
 
   function siteBase(cfg) {
-    return String(cfg?.site?.wordpressUrl || DEFAULT_WP).replace(/\/+$/, '');
+    const raw = String(cfg?.site?.wordpressUrl || DEFAULT_WP).trim();
+    try {
+      return new URL(raw.includes('://') ? raw : `https://${raw}`).origin;
+    } catch (_) {
+      return raw.replace(/\/+$/, '');
+    }
+  }
+
+  const WP_PAGE_SLUG_ALIASES = {
+    'over-ons': 'overons'
+  };
+
+  function wpPageSlug(cfg, slug) {
+    const map = cfg?.site?.wordpressPageSlugs || {};
+    if (map[slug]) return map[slug];
+    const base = siteBase(cfg);
+    const useProductionAliases = base.includes('digitify.be') && !base.includes('localhost');
+    if (useProductionAliases && WP_PAGE_SLUG_ALIASES[slug]) {
+      return WP_PAGE_SLUG_ALIASES[slug];
+    }
+    return slug;
   }
 
   function wpUrl(cfg, path) {
-    return siteBase(cfg) + path;
+    const base = siteBase(cfg);
+    if (!path || path === '/') return base + '/';
+    const raw = String(path);
+    const hashIndex = raw.indexOf('#');
+    const hash = hashIndex >= 0 ? raw.slice(hashIndex) : '';
+    const pathPart = hashIndex >= 0 ? raw.slice(0, hashIndex) : raw;
+    const slug = pathPart.replace(/^\/+|\/+$/g, '');
+    if (!slug) return base + '/' + hash;
+    return base + '/' + wpPageSlug(cfg, slug) + '/' + hash;
+  }
+
+  function leadsUrl(cfg) {
+    return String(cfg?.site?.leadsUrl || 'https://leads.digitify.be').replace(/\/+$/, '');
+  }
+
+  function shopUrl(cfg) {
+    return String(cfg?.site?.shopUrl || window.location.origin || 'https://shop.digitify.be').replace(/\/+$/, '');
   }
 
   function ensureHeaderCss() {
-    if (document.getElementById('digitifyHeaderDeckCss')) return;
-    const link = document.createElement('link');
-    link.id = 'digitifyHeaderDeckCss';
-    link.rel = 'stylesheet';
-    link.href = '/digitify-header-deck.css?v=7';
-    document.head.appendChild(link);
+    if (!document.getElementById('digitifyHeaderDeckCss')) {
+      const link = document.createElement('link');
+      link.id = 'digitifyHeaderDeckCss';
+      link.rel = 'stylesheet';
+      link.href = '/digitify-header-deck.css?v=9';
+      document.head.appendChild(link);
+    }
+    if (!document.getElementById('digitifyHeaderEcosystemCss')) {
+      const link = document.createElement('link');
+      link.id = 'digitifyHeaderEcosystemCss';
+      link.rel = 'stylesheet';
+      link.href = '/digitify-header-ecosystem.css?v=4';
+      document.head.appendChild(link);
+    }
   }
 
   function ensureFooterCss() {
@@ -67,50 +111,90 @@
     return `digitify-nav__link${item.linkClass ? ' ' + item.linkClass : ''}${isActive ? ' is-active' : ''}`;
   }
 
+  function renderNavDropdown(children, active) {
+    return `<ul class="digitify-nav__dropdown digitify-nav__dropdown--mega digitify-nav__dropdown--text">${children.map((child) => {
+      const isActive = isNavItemActive(child, active);
+      return `<li><a href="${child.href}" class="digitify-nav__mega-link${isActive ? ' is-active' : ''}"><span class="digitify-nav__mega-text">${child.label}</span></a></li>`;
+    }).join('')}</ul>`;
+  }
+
   function renderDesktopNav(cfg, active) {
+    const wp = siteBase(cfg);
+    const leads = leadsUrl(cfg);
     const items = [
+      { href: wpUrl(cfg, '/'), label: 'Home', key: 'home' },
       { href: wpUrl(cfg, '/diensten/'), label: 'Diensten', key: 'diensten' },
       { href: wpUrl(cfg, '/cases/'), label: 'Cases', key: 'cases' },
       { href: wpUrl(cfg, '/over-ons/'), label: 'Over ons', key: 'over-ons' },
-      { href: wpUrl(cfg, '/contact/'), label: 'Contact', key: 'contact' },
-      { href: '/', label: 'Shop', key: 'shop', keys: ['shop', 'producten', 'home'], linkClass: 'digitify-nav__link--shop' },
-      { href: '/designer', label: 'Designer', key: 'designer', linkClass: 'digitify-nav__link--shop' }
+      { href: `${leads}/product`, label: 'Lead Finder', key: 'lead-finder', linkClass: 'digitify-nav__link--shop' },
+      {
+        href: '/',
+        label: 'Shop',
+        key: 'shop',
+        keys: ['shop', 'producten', 'leads'],
+        linkClass: 'digitify-nav__link--shop',
+        children: [
+          { href: '/', label: 'Shop', key: 'shop', keys: ['shop', 'producten'] },
+          { href: '/designer', label: 'Designer', key: 'designer' }
+        ]
+      },
+      { href: wpUrl(cfg, '/contact/'), label: 'Contact', key: 'contact' }
     ];
-    return items.map((item) => `
+    return items.map((item) => {
+      if (item.children?.length) {
+        const parentActive = isNavItemActive(item, active)
+          || item.children.some((child) => isNavItemActive(child, active));
+        return `
+      <li class="digitify-nav__item digitify-nav__item--has-dropdown" aria-haspopup="true">
+        <a href="${item.href}" class="digitify-nav__link${item.linkClass ? ' ' + item.linkClass : ''}${parentActive ? ' is-active' : ''}">
+          <span class="digitify-nav__link-text">${item.label}</span>
+          <span class="digitify-nav__caret" aria-hidden="true"></span>
+        </a>
+        ${renderNavDropdown(item.children, active)}
+      </li>`;
+      }
+      return `
       <li class="digitify-nav__item">
-        <a href="${item.href}" class="${navLinkClass(item, active)}">${item.label}</a>
-      </li>`).join('');
+        <a href="${item.href}" class="${navLinkClass(item, active)}">
+          <span class="digitify-nav__link-text">${item.label}</span>
+        </a>
+      </li>`;
+    }).join('');
   }
 
   function mobileItemClass(isActive, extra) {
     return `digitify-mobile-nav__item${extra ? ' ' + extra : ''}${isActive ? ' is-active' : ''}`;
   }
 
-  function renderMobileShopLinks(active) {
-    const items = [
-      { href: '/', label: 'Shop', keys: ['shop', 'producten', 'home'], accent: true },
-      { href: '/designer', label: 'Designer', keys: ['designer'], accent: true },
-      { href: '/cart', label: 'Winkelmand', keys: ['cart'], accent: true }
-    ];
-    return items.map((item) => {
-      const isActive = item.keys.includes(active);
-      return `<a href="${item.href}" class="${mobileItemClass(isActive, item.accent ? 'digitify-mobile-nav__item--accent' : '')}">${item.label}</a>`;
-    }).join('');
-  }
-
-  function renderMobileSiteLinks(cfg, active) {
+  function renderMobileNav(cfg, active) {
     const wp = siteBase(cfg);
-    const items = [
-      { href: wp + '/', label: 'Home', keys: [] },
-      { href: wpUrl(cfg, '/diensten/'), label: 'Diensten', keys: [] },
-      { href: wpUrl(cfg, '/cases/'), label: 'Cases', keys: [] },
-      { href: wpUrl(cfg, '/over-ons/'), label: 'Over ons', keys: [] },
+    const leads = leadsUrl(cfg);
+    const appLinks = [
+      { href: '/', label: 'Shop', keys: ['shop', 'producten'], accent: true },
+      { href: '/designer', label: 'Designer', keys: ['designer'], accent: true },
+      { href: `${leads}/product`, label: 'Lead Finder', keys: ['leads', 'lead-finder'], accent: true },
+      { href: '/cart', label: 'Winkelmand', keys: ['cart'] }
+    ];
+    const siteLinks = [
+      { href: `${wp}/`, label: 'Home', keys: ['home'] },
+      { href: wpUrl(cfg, '/diensten/'), label: 'Diensten', keys: ['diensten'] },
+      { href: wpUrl(cfg, '/cases/'), label: 'Cases', keys: ['cases'] },
+      { href: wpUrl(cfg, '/over-ons/'), label: 'Over ons', keys: ['over-ons'] },
       { href: wpUrl(cfg, '/contact/'), label: 'Contact', keys: ['contact'] }
     ];
-    return items.map((item) => {
-      const isActive = item.keys.includes(active);
-      return `<a href="${item.href}" class="${mobileItemClass(isActive, 'digitify-mobile-nav__item--muted')}">${item.label}</a>`;
-    }).join('');
+
+    const renderLink = (item, accentDefault) => {
+      const isActive = item.keys.some((key) => key && active === key);
+      const accent = item.accent || accentDefault;
+      const extra = accent ? 'digitify-mobile-nav__item--accent' : 'digitify-mobile-nav__item--muted';
+      return `<a href="${item.href}" class="${mobileItemClass(isActive, extra)}">${item.label}</a>`;
+    };
+
+    return [
+      ...appLinks.map((item) => renderLink(item, true)),
+      '<div class="digitify-mobile-nav__divider" aria-hidden="true"></div>',
+      ...siteLinks.map((item) => renderLink(item, false))
+    ].join('');
   }
 
   function patchHeaderBranding(cfg) {
@@ -123,10 +207,67 @@
     });
   }
 
+  function headerConfigKey(cfg) {
+    return [siteBase(cfg), leadsUrl(cfg), shopUrl(cfg)].join('|');
+  }
+
+  function patchHeaderLinks(cfg) {
+    patchHeaderBranding(cfg);
+    const wp = siteBase(cfg);
+    const leads = leadsUrl(cfg);
+    const wpPaths = [
+      '/',
+      '/diensten/',
+      '/cases/',
+      '/over-ons/',
+      '/overons/',
+      '/contact/',
+      '/webdesign/',
+      '/media/',
+      '/marketing/',
+      '/algemene-voorwaarden/',
+      '/cookiebeleid/',
+      '/privacyverklaring/'
+    ];
+    const wpTargets = new Map([
+      ...wpPaths.map((path) => [DEFAULT_WP + path, wpUrl(cfg, path)]),
+      ...wpPaths.map((path) => ['http://localhost:8080' + path, wpUrl(cfg, path)]),
+      ...wpPaths.map((path) => ['https://digitify.be' + path, wpUrl(cfg, path)]),
+      ...wpPaths.map((path) => ['https://www.digitify.be' + path, wpUrl(cfg, path)])
+    ]);
+    document.querySelectorAll('#digitifySiteHeaderWrap a[href], #digitify-mobile-nav a[href]').forEach((anchor) => {
+      const href = anchor.getAttribute('href');
+      if (!href) return;
+      if (wpTargets.has(href)) {
+        anchor.setAttribute('href', wpTargets.get(href));
+        return;
+      }
+      if (href.startsWith(`${DEFAULT_WP}/`) || href.startsWith('http://localhost:8080/') || href.startsWith('https://www.digitify.be/')) {
+        const path = href.replace(/^https?:\/\/[^/]+/, '');
+        const normalized = path.endsWith('/') ? path : `${path}/`;
+        if (wpPaths.includes(normalized) || wpPaths.includes(path)) {
+          anchor.setAttribute('href', wpUrl(cfg, normalized));
+        }
+      }
+      if (href.includes('leads.digitify.be/product') || href === 'http://localhost:3000/product') {
+        anchor.setAttribute('href', `${leads}/product`);
+      }
+    });
+    document.querySelectorAll('.digitify-site-footer a[href]').forEach((anchor) => {
+      const href = anchor.getAttribute('href');
+      if (!href) return;
+      if (wpTargets.has(href)) anchor.setAttribute('href', wpTargets.get(href));
+    });
+  }
+
   function renderHeader(cfg, { replace = true } = {}) {
-    if (!replace && document.getElementById('digitifySiteHeaderWrap')) {
-      patchHeaderBranding(cfg);
-      return;
+    const existing = document.getElementById('digitifySiteHeaderWrap');
+    if (!replace && existing) {
+      if (existing.dataset.shellCfg === headerConfigKey(cfg)) {
+        patchHeaderBranding(cfg);
+        return;
+      }
+      replace = true;
     }
     document.getElementById('digitifySiteHeaderWrap')?.remove();
     document.getElementById('digitify-mobile-nav')?.remove();
@@ -142,17 +283,19 @@
     const wrap = document.createElement('div');
     wrap.id = 'digitifySiteHeaderWrap';
     wrap.className = 'digitify-site-header';
+    wrap.dataset.shellCfg = headerConfigKey(cfg);
     wrap.innerHTML = `
       <header class="digitify-header digitify-header--deck" role="banner">
         <div class="digitify-header__rail" aria-hidden="true"><span class="digitify-header__rail-accent"></span></div>
         <div class="digitify-header__shell">
-            <div class="digitify-header__grid digitify-header__grid--shop">
+            <div class="digitify-header__grid digitify-header__grid--shop digitify-header__grid--ecosystem">
             <div class="digitify-header__start">
               <div class="digitify-header__brand">
                 <a href="${wp}/" class="digitify-logo digitify-logo--header" aria-label="${brandName} — Home">
-                  <img class="digitify-logo__img--brand" src="${logoSrc}" alt="${brandName}" width="168" height="44" loading="eager" fetchpriority="high" decoding="async">
+                  <img class="digitify-logo__img--brand" src="${logoSrc}" alt="${brandName}" width="132" height="36" loading="eager" fetchpriority="high" decoding="async">
                 </a>
               </div>
+              <p class="digitify-header__tag">Partner in Digital Solutions</p>
             </div>
 
             <nav class="digitify-header__nav digitify-nav" role="navigation" aria-label="Hoofdnavigatie">
@@ -186,38 +329,29 @@
         <div class="digitify-header__progress" aria-hidden="true"><span></span></div>
       </header>
 
-      <div class="digitify-mobile-nav digitify-mobile-nav--shop" id="digitify-mobile-nav" aria-hidden="true">
+      <div class="digitify-mobile-nav digitify-mobile-nav--drawer" id="digitify-mobile-nav" aria-hidden="true">
         <div class="digitify-mobile-nav__overlay"></div>
         <div class="digitify-mobile-nav__panel" role="dialog" aria-modal="true" aria-label="Menu">
           <div class="digitify-mobile-nav__head">
-            <a href="/" class="digitify-mobile-nav__brand" aria-label="Digitify Shop">
-              <img class="digitify-logo__img--brand" src="${logoSrc}" alt="${brandName}" width="132" height="35" loading="eager" decoding="async">
+            <a href="${wp}/" class="digitify-mobile-nav__brand" aria-label="${brandName} — Home">
+              <img class="digitify-logo__img--brand" src="${logoSrc}" alt="${brandName}" width="120" height="32" loading="eager" decoding="async">
             </a>
             <button class="digitify-mobile-nav__close" type="button" aria-label="Menu sluiten">
               <span aria-hidden="true">&times;</span>
             </button>
           </div>
           <div class="digitify-mobile-nav__scroll">
-            <section class="digitify-mobile-nav__section">
-              <span class="digitify-mobile-nav__label">Shop</span>
-              <nav class="digitify-mobile-nav__list" aria-label="Shop navigatie">
-                ${renderMobileShopLinks(active)}
-              </nav>
-            </section>
-            <section class="digitify-mobile-nav__section">
-              <span class="digitify-mobile-nav__label">Digitify website</span>
-              <nav class="digitify-mobile-nav__list digitify-mobile-nav__list--compact" aria-label="Website navigatie">
-                ${renderMobileSiteLinks(cfg, active)}
-              </nav>
-            </section>
-            <section class="digitify-mobile-nav__section">
-              <span class="digitify-mobile-nav__label">Account</span>
-              <nav class="digitify-mobile-nav__list digitify-mobile-nav__list--compact digitify-mobile-nav__auth" data-mobile-auth aria-label="Account navigatie"></nav>
-            </section>
+            <nav class="digitify-mobile-nav__list" aria-label="Navigatie">
+              ${renderMobileNav(cfg, active)}
+            </nav>
+            <div class="digitify-mobile-nav__account" data-mobile-auth aria-label="Account"></div>
           </div>
           <div class="digitify-mobile-nav__footer">
-            <a href="mailto:contact@digitify.be" class="digitify-mobile-nav__footer-link">contact@digitify.be</a>
-            <a href="${wp}/" class="digitify-mobile-nav__footer-link digitify-mobile-nav__footer-link--accent">digitify.be</a>
+            <a href="${wpUrl(cfg, '/contact/')}" class="digitify-mobile-nav__cta">Offerte aanvragen</a>
+            <div class="digitify-mobile-nav__meta-links">
+              <a href="mailto:contact@digitify.be" class="digitify-mobile-nav__footer-link">contact@digitify.be</a>
+              <a href="${wp}/" class="digitify-mobile-nav__footer-link digitify-mobile-nav__footer-link--accent">digitify.be</a>
+            </div>
           </div>
         </div>
       </div>`;
@@ -280,18 +414,20 @@
     if (!slot) return;
     if (!user) {
       slot.innerHTML = `
-      <div class="digitify-mobile-nav__auth-actions">
-        <a href="/login" class="digitify-mobile-nav__auth-btn">Inloggen</a>
-        <a href="/register" class="digitify-mobile-nav__auth-btn digitify-mobile-nav__auth-btn--solid">Aanmelden</a>
-      </div>`;
+        <div class="digitify-mobile-nav__divider" aria-hidden="true"></div>
+        <div class="digitify-mobile-nav__auth-actions">
+          <a href="/login" class="digitify-mobile-nav__auth-btn">Inloggen</a>
+          <a href="/register" class="digitify-mobile-nav__auth-btn digitify-mobile-nav__auth-btn--solid">Aanmelden</a>
+        </div>`;
       return;
     }
     const isStaff = user.role === 'OWNER' || user.role === 'ADMIN';
     slot.innerHTML = `
+      <div class="digitify-mobile-nav__divider" aria-hidden="true"></div>
       <a href="/account" class="digitify-mobile-nav__item digitify-mobile-nav__item--muted">Account</a>
       <a href="/dashboard" class="digitify-mobile-nav__item digitify-mobile-nav__item--muted">Mijn bestellingen</a>
-      ${isStaff ? `<a href="/admin?tab=settings" class="digitify-mobile-nav__item digitify-mobile-nav__item--muted">Instellingen</a>` : ''}
-      ${isStaff ? `<a href="/admin" class="digitify-mobile-nav__item digitify-mobile-nav__item--muted">Admin</a>` : ''}
+      ${isStaff ? '<a href="/admin?tab=settings" class="digitify-mobile-nav__item digitify-mobile-nav__item--muted">Instellingen</a>' : ''}
+      ${isStaff ? '<a href="/admin" class="digitify-mobile-nav__item digitify-mobile-nav__item--muted">Admin</a>' : ''}
       <button type="button" class="digitify-mobile-nav__item digitify-mobile-nav__item--muted digitify-mobile-nav__item--button" data-mobile-logout>Uitloggen</button>`;
     slot.querySelector('[data-mobile-logout]')?.addEventListener('click', async () => {
       await window.NEB?.post('/api/auth/logout');
@@ -404,9 +540,10 @@
                   <li><a href="${wpUrl(cfg, '/diensten/')}">Diensten</a></li>
                   <li><a href="${wpUrl(cfg, '/cases/')}">Cases</a></li>
                   <li><a href="${wpUrl(cfg, '/over-ons/')}">Over ons</a></li>
-                  <li><a href="${wpUrl(cfg, '/contact/')}">Contact</a></li>
+                  <li><a href="${leadsUrl(cfg)}/product" class="digitify-footer__link--shop">Lead Finder</a></li>
                   <li><a href="/" class="digitify-footer__link--shop">Shop</a></li>
                   <li><a href="/designer" class="digitify-footer__link--shop">Designer</a></li>
+                  <li><a href="${wpUrl(cfg, '/contact/')}">Contact</a></li>
                 </ul>
               </nav>
 
@@ -457,11 +594,25 @@
     mount.appendChild(footer);
   }
 
+  async function waitForShellConfig() {
+    if (window.NEB_CONFIG && window.NEB_CONFIG.site) return window.NEB_CONFIG;
+    if (window.__NEB_CONFIG_PROMISE) {
+      try {
+        const cfg = await window.__NEB_CONFIG_PROMISE;
+        if (cfg && typeof cfg === 'object') {
+          window.NEB_CONFIG = cfg;
+          return cfg;
+        }
+      } catch (_) {}
+    }
+    return window.NEB_CONFIG || {};
+  }
+
   async function init() {
     ensureFooterCss();
     injectAmbient();
 
-    let cfg = window.NEB_CONFIG || {};
+    let cfg = await waitForShellConfig();
     renderHeader(cfg);
     wireHeaderScroll();
     wireMobileNav();
@@ -492,11 +643,11 @@
     }, 420);
 
     try {
-      const hasCatalog = Array.isArray(window.NEB_CONFIG?.products) && window.NEB_CONFIG.products.length > 0;
-      if (!hasCatalog && window.NEB?.config) {
-        const fresh = await NEB.config();
+      const fresh = window.NEB?.config ? await NEB.config() : window.NEB_CONFIG;
+      if (fresh && typeof fresh === 'object') {
         window.NEB_CONFIG = fresh;
         renderHeader(fresh, { replace: false });
+        patchHeaderLinks(fresh);
         if (window.NEB?.applyBranding) NEB.applyBranding(fresh);
         renderFooter(fresh);
         await refreshAuth();

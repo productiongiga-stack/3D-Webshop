@@ -1,5 +1,5 @@
 (function () {
-  var SHOP_PATH = /^\/(?:$|login|register|dashboard|admin|account|cart|shop|designer|prijzen|maattabel|support|faq|contact|verzending|legal|privacy|voorwaarden|retourneren)(?:\/|$)/;
+  var SHOP_PATH = /^\/(?:$|login|register|dashboard|admin|account|cart|shop|designer|leads|prijzen|maattabel|support|faq|contact|verzending|legal|privacy|voorwaarden|retourneren)(?:\/|$)/;
 
   document.documentElement.classList.add('digitify-page-loading', 'digitify-shell-booting');
 
@@ -135,8 +135,24 @@
     var link = document.createElement('link');
     link.id = 'digitifyHeaderDeckCss';
     link.rel = 'stylesheet';
-    link.href = '/digitify-header-deck.css?v=7';
+    link.href = '/digitify-header-deck.css?v=9';
     document.head.appendChild(link);
+  }
+
+  if (!document.getElementById('digitifyHeaderEcosystemCss')) {
+    var eco = document.createElement('link');
+    eco.id = 'digitifyHeaderEcosystemCss';
+    eco.rel = 'stylesheet';
+    eco.href = '/digitify-header-ecosystem.css?v=4';
+    document.head.appendChild(eco);
+  }
+
+  if (!document.getElementById('digitifyMobileDrawerCss')) {
+    var drawer = document.createElement('link');
+    drawer.id = 'digitifyMobileDrawerCss';
+    drawer.rel = 'stylesheet';
+    drawer.href = '/digitify-mobile-drawer.css?v=1';
+    document.head.appendChild(drawer);
   }
 
   document.addEventListener('click', function (e) {

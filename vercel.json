@@ -25,7 +25,7 @@
       "dest": "/api/index.js"
     },
     {
-      "src": "/(login|register|dashboard|admin|account|cart|shop|prijzen|maattabel|support|faq|contact|verzending|legal|privacy|voorwaarden|retourneren|designer)",
+      "src": "/(login|register|dashboard|admin|account|cart|shop|prijzen|maattabel|support|faq|contact|verzending|legal|privacy|voorwaarden|retourneren|designer|leads)",
       "dest": "/api/index.js"
     },
     {

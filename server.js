@@ -5973,7 +5973,7 @@ app.use(express.static(PUBLIC_DIR, {
 const pageRoutes = [
   '/login', '/register', '/dashboard', '/admin', '/account', '/cart',
   '/shop', '/prijzen', '/maattabel', '/support', '/faq', '/contact',
-  '/verzending', '/legal', '/privacy', '/voorwaarden', '/retourneren', '/designer'
+  '/verzending', '/legal', '/privacy', '/voorwaarden', '/retourneren', '/designer', '/leads'
 ];
 pageRoutes.forEach((route) => {
   app.get(route, async (_req, res) => {

@@ -718,7 +718,11 @@ const DIGITIFY_MODEL3D = (folder, opts = {}) => ({
 const DEFAULT_CONFIG = {
   site: {
     wordpressUrl: 'https://digitify.be',
-    shopUrl: 'https://shop.digitify.be'
+    shopUrl: 'https://shop.digitify.be',
+    leadsUrl: 'https://leads.digitify.be',
+    wordpressPageSlugs: {
+      'over-ons': 'overons'
+    }
   },
   brand: { name: 'Digitify', tagline: 'Partner in Digital Solutions' },
   hero: {

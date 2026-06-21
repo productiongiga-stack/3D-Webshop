@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="digitify-shell-boot.js?v=11"></script>
+  <title>Digitify Lead Finder — Shop</title>
+  <meta name="description" content="Ontdek Digitify Lead Finder: prospectie, outreach, offertes en opvolging in één platform. Naadloos gekoppeld aan digitify.be en de Digitify webshop." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=7" />
+  <link rel="stylesheet" href="app.css?v=7" />
+  <link rel="stylesheet" href="digitify-shell.css?v=11" />
+</head>
+<body class="theme-light digitify-shop-body" data-nav="leads" data-page-title="Lead Finder">
+  <main class="marketing-main digitify-page-content">
+    <section class="marketing-hero">
+      <p class="product-badge-3d">Lead Finder · Digitify platform</p>
+      <h1>Vind, kwalificeer en converteer leads — in één hub.</h1>
+      <p>
+        Digitify Lead Finder combineert lokale prospectie, AI-outreach, offertes, bookings en reviews.
+        Perfect voor agencies en salesteams die sneller willen groeien zonder losse tools.
+      </p>
+      <div class="cta-row">
+        <a class="btn-primary" id="leadsPrimaryCta" href="https://leads.digitify.be/product" style="text-decoration:none">Ontdek Lead Finder</a>
+        <a class="btn-secondary" id="leadsRegisterCta" href="https://leads.digitify.be/register" style="text-decoration:none">Gratis aanmelden</a>
+      </div>
+    </section>
+
+    <section class="marketing-panel">
+      <h2>Wat zit erin?</h2>
+      <div class="marketing-grid">
+        <article class="marketing-card">
+          <h3>Lead Search</h3>
+          <p>Zoek en kwalificeer prospects op regio, niche en bedrijfsdata met directe fit scores.</p>
+        </article>
+        <article class="marketing-card">
+          <h3>Outreach met AI</h3>
+          <p>Schrijf en verstuur gepersonaliseerde opvolging vanuit één workflow in je merkstijl.</p>
+        </article>
+        <article class="marketing-card">
+          <h3>Offerte configurator</h3>
+          <p>Embed een offerteflow op je site en volg aanvragen tot getekende deal.</p>
+        </article>
+        <article class="marketing-card">
+          <h3>Bookings &amp; chatbot</h3>
+          <p>Plan afspraken realtime en kwalificeer bezoekers met een branded chatbot widget.</p>
+        </article>
+        <article class="marketing-card">
+          <h3>Rapporten</h3>
+          <p>White-label rapportages met pipeline-inzichten voor je team én klanten.</p>
+        </article>
+        <article class="marketing-card">
+          <h3>Reviewsysteem</h3>
+          <p>Route feedback slim: interne opvolging bij lage scores, publieke reviews bij tevreden klanten.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="marketing-content">
+      <div class="marketing-panel">
+        <h2>Eén ecosysteem, drie sterke merken</h2>
+        <p>
+          Digitify.be helpt met webdesign, media en marketing. De webshop levert smart producten met 3D designer.
+          Lead Finder sluit de commerciële kring — van eerste contact tot klant.
+        </p>
+        <ul class="marketing-grid" style="grid-template-columns:1fr;margin-top:1rem">
+          <li class="marketing-card"><strong>digitify.be</strong> — strategie, cases en projecten</li>
+          <li class="marketing-card"><strong>shop.digitify.be</strong> — NFC, LED en designer</li>
+          <li class="marketing-card"><strong>leads.digitify.be</strong> — prospectie &amp; sales hub</li>
+        </ul>
+      </div>
+      <div class="marketing-panel">
+        <h2>Start vandaag</h2>
+        <p>Elke site heeft een eigen login. Lead Finder accounts zijn los van de webshop — wel dezelfde Digitify look &amp; feel.</p>
+        <div class="cta-row" style="margin-top:1rem">
+          <a class="btn-primary" id="leadsLoginCta" href="https://leads.digitify.be/login" style="text-decoration:none">Inloggen Lead Finder</a>
+          <a class="btn-secondary" href="/" style="text-decoration:none">Terug naar shop</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="siteFooterMount"></div>
+
+  <script src="app.js?v=11"></script>
+  <script src="digitify-shell.js?v=11"></script>
+  <script src="site-page.js?v=8"></script>
+  <script>
+    (function () {
+      function patchLeadsLinks(cfg) {
+        var base = String(cfg && cfg.site && cfg.site.leadsUrl || 'https://leads.digitify.be').replace(/\/+$/, '');
+        var map = {
+          leadsPrimaryCta: base + '/product',
+          leadsRegisterCta: base + '/register',
+          leadsLoginCta: base + '/login'
+        };
+        Object.keys(map).forEach(function (id) {
+          var el = document.getElementById(id);
+          if (el) el.href = map[id];
+        });
+      }
+      if (window.NEB_CONFIG) patchLeadsLinks(window.NEB_CONFIG);
+      window.addEventListener('digitify-shell-ready', function (event) {
+        patchLeadsLinks(event.detail && event.detail.cfg);
+      });
+    })();
+  </script>
+</body>
+</html>
