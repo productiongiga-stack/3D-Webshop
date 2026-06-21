@@ -39,7 +39,7 @@ const {
 } = dbModule;
 const { collectProductsWarnings } = require('./lib/product-warnings');
 const { securityHeadersMiddleware } = require('./lib/security-headers');
-const { mirrorPublicAssetIfConfigured } = require('./lib/asset-storage');
+const { mirrorPublicAssetIfConfigured, getAssetCdnBase } = require('./lib/asset-storage');
 const { buildPublicConfigPayload } = require('./lib/public-config');
 const { getUploadPlatformLimits } = require('./lib/direct-upload-limit');
 const { handleProductMockupUpload, isImageUpload } = require('./lib/product-mockup-upload');
@@ -4960,6 +4960,8 @@ app.get('/api/admin/config', requireAuth, requireRole('OWNER', 'ADMIN'), async (
 
 app.put('/api/admin/config', requireAuth, requireRole('OWNER', 'ADMIN'), async (req, res) => {
   const cfg = req.body || {};
+  delete cfg.platform;
+  if (cfg.smtp && typeof cfg.smtp === 'object') delete cfg.smtp.passSet;
   const before = await getConfig();
   const cleanText = (v, max = 180) => String(v == null ? '' : v).trim().slice(0, max);
   if (cfg.colors && !Array.isArray(cfg.colors)) return res.status(400).json({ error: 'colors moet een lijst zijn' });
@@ -5855,7 +5857,8 @@ app.get('/assets/*', async (req, res, next) => {
   const allowedRoot = path.resolve(UPLOAD_DIR, 'assets');
   if (!abs.startsWith(allowedRoot + path.sep) && abs !== allowedRoot) return res.status(400).end();
   if (fs.existsSync(abs)) {
-    res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=300, stale-while-revalidate=300');
+    const cacheMax = getAssetCdnBase() ? 86400 : 300;
+    res.setHeader('Cache-Control', `public, max-age=${cacheMax}, s-maxage=${cacheMax}, stale-while-revalidate=600`);
     return res.sendFile(abs);
   }
   if (await respondWithStoredUpload(res, rel, 'signed', Date.now() + (300 * 1000))) return;

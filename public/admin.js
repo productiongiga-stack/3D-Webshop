@@ -143,6 +143,16 @@ function preserveUploadPlatformOnConfig(nextConfig) {
   return nextConfig;
 }
 
+function prepareDraftForSave(sourceDraft) {
+  const payload = JSON.parse(JSON.stringify(sourceDraft || {}));
+  delete payload.platform;
+  if (payload.smtp && typeof payload.smtp === 'object') {
+    delete payload.smtp.passSet;
+    if (!String(payload.smtp.pass || '').trim()) delete payload.smtp.pass;
+  }
+  return payload;
+}
+
 async function uploadProductMockupFile(file) {
   if (!file) throw new Error('Geen bestand geselecteerd');
   const meta = {
@@ -5240,16 +5250,30 @@ async function loadStripeStatus() {
 
 async function loadSettings() {
   if (CURRENT_USER.role !== 'OWNER') return;
-  const cfg = await NEB.get('/api/admin/config');
-  window.NEB_CONFIG = cfg || {};
-  syncUploadPlatformFromConfig(cfg);
-  NEB.applyBranding(window.NEB_CONFIG);
   const wrap = document.getElementById('settingsWrap');
-  wrap.innerHTML = renderSettings(cfg);
-  bindSettings(cfg);
-  applySettingsSubTab(CURRENT_SETTINGS_STAB);
-  loadStripeStatus();
-  refreshIntegrationChecklist(cfg);
+  if (wrap) wrap.innerHTML = '<p class="muted compact">Instellingen laden…</p>';
+  try {
+    const cfg = await NEB.get('/api/admin/config');
+    window.NEB_CONFIG = cfg || {};
+    syncUploadPlatformFromConfig(cfg);
+    NEB.applyBranding(window.NEB_CONFIG);
+    if (!wrap) return;
+    wrap.innerHTML = renderSettings(cfg);
+    bindSettings(cfg);
+    applySettingsSubTab(CURRENT_SETTINGS_STAB);
+    loadStripeStatus();
+    refreshIntegrationChecklist(cfg);
+  } catch (err) {
+    if (wrap) {
+      wrap.innerHTML = `<div class="card card--warn" style="padding:1rem">
+        <p><strong>Instellingen laden mislukt</strong></p>
+        <p class="muted compact">${escText(err?.message || 'Onbekende fout')}</p>
+        <button type="button" class="btn btn-primary btn-sm" id="settingsRetryBtn">Opnieuw proberen</button>
+      </div>`;
+      wrap.querySelector('#settingsRetryBtn')?.addEventListener('click', () => loadSettings());
+    }
+    NEB.toast(err?.message || 'Instellingen laden mislukt', 'error');
+  }
 }
 
 function setIntegrationCheckItem(key, ok, detail) {
@@ -5987,8 +6011,8 @@ function renderSettings(c) {
     </div><!-- /stab betalingen -->
 
     <div style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border)">
-      <button class="btn btn-ghost" id="resetCfg">Annuleer</button>
-      <button class="btn btn-primary" id="saveCfg">Opslaan</button>
+      <button type="button" class="btn btn-ghost" id="resetCfg">Annuleer</button>
+      <button type="button" class="btn btn-primary" id="saveCfg">Opslaan</button>
     </div>`;
 }
 
@@ -6058,7 +6082,7 @@ function bindSettings(cfg) {
 
     captureFlatFields();
     try {
-      const out = await NEB.put('/api/admin/config', draft);
+      const out = await NEB.put('/api/admin/config', prepareDraftForSave(draft));
       applySavedConfig(out);
       if (Array.isArray(out.warnings) && out.warnings.length) {
         NEB.toast(`${out.warnings.length} productwaarschuwing(en) in catalogus`, 'error');
@@ -6204,7 +6228,7 @@ function bindSettings(cfg) {
       try {
         if (btn) { btn.disabled = true; btn.textContent = 'Versturen...'; }
         if (result) result.textContent = 'Config opslaan...';
-        applySavedConfig(await NEB.put('/api/admin/config', draft));
+        applySavedConfig(await NEB.put('/api/admin/config', prepareDraftForSave(draft)));
         if (result) result.textContent = 'Testmail versturen...';
         const out = await NEB.post('/api/admin/email/test', { templateKey: 'orderPlaced', to });
         if (out?.info?.skipped === 'smtp_not_configured') {
@@ -6310,7 +6334,7 @@ function bindSettings(cfg) {
       const oldTxt = btn?.textContent;
       try {
         if (btn) { btn.disabled = true; btn.textContent = 'Versturen...'; }
-        applySavedConfig(await NEB.put('/api/admin/config', draft));
+        applySavedConfig(await NEB.put('/api/admin/config', prepareDraftForSave(draft)));
         const out = await NEB.post('/api/admin/email/test', { templateKey: testTemplate, to });
         if (out?.info?.skipped === 'smtp_not_configured') {
           NEB.toast('SMTP is nog niet geconfigureerd', 'error');
@@ -6339,6 +6363,7 @@ function bindSettings(cfg) {
       return;
     }
     if (t.id === 'stripesSaveBtn') {
+      captureFlatFields();
       const sk = wrap.querySelector('#stripeSecretKey')?.value.trim() || '';
       const ws = wrap.querySelector('#stripeWebhookSecret')?.value.trim() || '';
       const bu = wrap.querySelector('#stripeBaseUrl')?.value.trim() || '';
@@ -6346,8 +6371,9 @@ function bindSettings(cfg) {
       const old = btn?.textContent;
       try {
         if (btn) { btn.disabled = true; btn.textContent = 'Opslaan...'; }
+        await NEB.put('/api/admin/config', prepareDraftForSave({ checkout: draft.checkout }));
         await NEB.put('/api/admin/config/stripe', { secretKey: sk, webhookSecret: ws, appBaseUrl: bu });
-        NEB.toast('Stripe-instellingen opgeslagen', 'success');
+        NEB.toast('Betaling-instellingen opgeslagen', 'success');
         await loadStripeStatus();
       } catch (err) {
         NEB.toast(err.message || 'Kon instellingen niet opslaan', 'error');
@@ -6459,28 +6485,33 @@ function bindSettings(cfg) {
   wrap.addEventListener('input', inputHandler);
   wrap.addEventListener('change', inputHandler);
 
+  if (wrap._settingsDragStartHandler) wrap.removeEventListener('dragstart', wrap._settingsDragStartHandler);
+  if (wrap._settingsDragEndHandler) wrap.removeEventListener('dragend', wrap._settingsDragEndHandler);
+  if (wrap._settingsDragOverHandler) wrap.removeEventListener('dragover', wrap._settingsDragOverHandler);
+  if (wrap._settingsDropHandler) wrap.removeEventListener('drop', wrap._settingsDropHandler);
+
   let dragProductId = null;
-  wrap.addEventListener('dragstart', (e) => {
+  const dragStartHandler = (e) => {
     const card = e.target.closest('.prod-card[draggable="true"]');
     if (!card) return;
     dragProductId = String(card.dataset.productId || '');
     card.classList.add('is-dragging');
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', dragProductId);
-  });
-  wrap.addEventListener('dragend', () => {
+  };
+  const dragEndHandler = () => {
     wrap.querySelectorAll('.prod-card').forEach((card) => card.classList.remove('is-dragging', 'is-dragover'));
     dragProductId = null;
-  });
-  wrap.addEventListener('dragover', (e) => {
+  };
+  const dragOverHandler = (e) => {
     const card = e.target.closest('.prod-card[draggable="true"]');
     if (!card) return;
     e.preventDefault();
     wrap.querySelectorAll('.prod-card').forEach((el) => {
       el.classList.toggle('is-dragover', el === card && String(el.dataset.productId) !== dragProductId);
     });
-  });
-  wrap.addEventListener('drop', async (e) => {
+  };
+  const dropHandler = async (e) => {
     const target = e.target.closest('.prod-card[draggable="true"]');
     if (!target || !dragProductId || String(target.dataset.productId) === dragProductId) return;
     e.preventDefault();
@@ -6494,14 +6525,22 @@ function bindSettings(cfg) {
     draft.products = normalizeProducts(products);
     wrap.querySelectorAll('.prod-card').forEach((card) => card.classList.remove('is-dragging', 'is-dragover'));
     try {
-      const out = await NEB.put('/api/admin/config', draft);
+      const out = await NEB.put('/api/admin/config', prepareDraftForSave(draft));
       applySavedConfig(out);
       NEB.toast('Productvolgorde opgeslagen', 'success');
     } catch (err) {
       NEB.toast(err.message || 'Volgorde opslaan mislukt', 'error');
     }
     rerender();
-  });
+  };
+  wrap._settingsDragStartHandler = dragStartHandler;
+  wrap._settingsDragEndHandler = dragEndHandler;
+  wrap._settingsDragOverHandler = dragOverHandler;
+  wrap._settingsDropHandler = dropHandler;
+  wrap.addEventListener('dragstart', dragStartHandler);
+  wrap.addEventListener('dragend', dragEndHandler);
+  wrap.addEventListener('dragover', dragOverHandler);
+  wrap.addEventListener('drop', dropHandler);
 
   updateAllTemplateVersionUI();
 
@@ -6703,12 +6742,13 @@ function bindSettings(cfg) {
   async function save() {
     captureFlatFields();
     try {
-      const out = await NEB.put('/api/admin/config', draft);
+      const out = await NEB.put('/api/admin/config', prepareDraftForSave(draft));
       applySavedConfig(out);
       if (Array.isArray(out.warnings) && out.warnings.length) {
         NEB.toast(`${out.warnings.length} productwaarschuwing(en) — controleer 3D-posters`, 'error');
       }
       updateAllTemplateVersionUI();
+      rerender({ skipCapture: true });
       NEB.toast('Instellingen opgeslagen', 'success');
     } catch (err) {
       if (handlePersistError(err)) return;

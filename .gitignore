@@ -12,3 +12,4 @@ db-sqlite.js
 server-sqlite.js
 convert-async.js
 *.sqlite
+.env*
