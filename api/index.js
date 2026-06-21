@@ -16,7 +16,10 @@ module.exports = async (req, res) => {
         await bootPromise;
       } catch (err) {
         bootPromise = null;
-        throw err;
+        console.warn('[api] boot failed, retrying once:', err?.message || err);
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        bootPromise = boot();
+        await bootPromise;
       }
       booted = true;
     }

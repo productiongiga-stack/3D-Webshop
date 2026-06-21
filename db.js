@@ -251,6 +251,21 @@ CREATE INDEX IF NOT EXISTS idx_upload_blobs_updated_at ON upload_blobs(updated_a
   `);
 }
 
+async function pingDatabase(maxAttempts = 3) {
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await db.prepare('SELECT 1 AS ok').get();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 // ── Schema init ───────────────────────────────────────────────────────────────
 async function initDatabase() {
   if (IS_VERCEL && !USE_PG) {
@@ -260,7 +275,7 @@ async function initDatabase() {
   }
   if (USE_PG) {
     try {
-      await db.prepare('SELECT 1 AS ok').get();
+      await pingDatabase(IS_VERCEL ? 4 : 3);
     } catch (err) {
       console.error('[db] PostgreSQL bereikbaarheid mislukt:', err?.message || err);
       if (IS_VERCEL) throw err;
@@ -1185,6 +1200,7 @@ async function getConfig() {
   if (cachedConfig && (now - cachedConfigAt) < CONFIG_CACHE_TTL_MS) {
     return cachedConfig;
   }
+  try {
   await ensureConfig();
   const stored = (await getSetting('config')) || {};
   const merged = { ...DEFAULT_CONFIG, ...stored };
@@ -1218,6 +1234,15 @@ async function getConfig() {
   cachedConfig = merged;
   cachedConfigAt = Date.now();
   return merged;
+  } catch (err) {
+    console.warn('[getConfig] DB read failed, using cached/default catalog:', err?.message || err);
+    if (cachedConfig) return cachedConfig;
+    const fallbackProducts = sanitizeProducts((DEFAULT_CONFIG.products || []).map(mergeStoredProductWithDefaults));
+    const fallback = { ...DEFAULT_CONFIG, products: fallbackProducts };
+    cachedConfig = fallback;
+    cachedConfigAt = Date.now();
+    return fallback;
+  }
 }
 
 // ── Ensure OWNER ──────────────────────────────────────────────────────────────

@@ -92,7 +92,94 @@ const state = {
 
 const touchLikeDevice = window.matchMedia?.('(hover: none), (pointer: coarse)')?.matches || false;
 const prefersMobilePosterOnly = window.matchMedia?.('(max-width: 768px) and (hover: none)')?.matches || false;
+const STOREFRONT_CONFIG_CACHE_KEY = 'neb_public_config_v1';
+const STOREFRONT_CONFIG_FRESH_MS = 30 * 60 * 1000;
+const STOREFRONT_CONFIG_STALE_MS = 24 * 60 * 60 * 1000;
 let miniVisibilityObserver = null;
+
+function shouldUseHero3d() {
+  if (prefersMobilePosterOnly || touchLikeDevice) return false;
+  if (navigator.connection?.saveData) return false;
+  const deviceMemory = Number(navigator.deviceMemory);
+  if (Number.isFinite(deviceMemory) && deviceMemory > 0 && deviceMemory <= 4) return false;
+  return true;
+}
+
+function readStorefrontConfigCache(allowStale = false) {
+  try {
+    const raw = sessionStorage.getItem(STOREFRONT_CONFIG_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.data || !Array.isArray(parsed.data.products) || !parsed.data.products.length) return null;
+    const age = Date.now() - Number(parsed.ts || 0);
+    if (age <= STOREFRONT_CONFIG_FRESH_MS) return parsed.data;
+    if (allowStale && age <= STOREFRONT_CONFIG_STALE_MS) return parsed.data;
+  } catch (_) {}
+  return null;
+}
+
+function writeStorefrontConfigCache(cfg) {
+  if (!cfg || !Array.isArray(cfg.products) || !cfg.products.length) return;
+  try {
+    sessionStorage.setItem(STOREFRONT_CONFIG_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: cfg }));
+  } catch (_) {}
+}
+
+function showHeroPosterFallback(product) {
+  const poster = productPreviewPoster(product);
+  const posterEl = $('#hero3dPoster');
+  if (posterEl) {
+    posterEl.hidden = !poster;
+    posterEl.src = poster || '';
+    posterEl.alt = product?.name || 'Product';
+    if (poster) NEB.wireMediaImage?.(posterEl);
+  }
+  setHeroMediaMode('2d');
+}
+
+function showStorefrontCatalogError(message, canRetry = true) {
+  const host = $('#storefrontProducts');
+  if (!host) return;
+  host.innerHTML = `
+    <div class="storefront-catalog-error" role="alert">
+      <p>${escapeHtml(message)}</p>
+      ${canRetry ? '<button type="button" class="btn-primary storefront-catalog-retry" id="storefrontRetryLoad">Opnieuw proberen</button>' : ''}
+    </div>`;
+  $('#storefrontRetryLoad')?.addEventListener('click', () => window.location.reload());
+}
+
+async function resolveStorefrontConfig() {
+  if (window.NEB_CONFIG && Array.isArray(window.NEB_CONFIG.products) && window.NEB_CONFIG.products.length) {
+    writeStorefrontConfigCache(window.NEB_CONFIG);
+    return window.NEB_CONFIG;
+  }
+  const cached = readStorefrontConfigCache(false);
+  if (cached) return cached;
+
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const cfg = await NEB.config();
+      if (cfg && Array.isArray(cfg.products) && cfg.products.length) {
+        writeStorefrontConfigCache(cfg);
+        return cfg;
+      }
+      lastErr = new Error('Lege catalogus');
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 450 * (attempt + 1)));
+      }
+    }
+  }
+
+  const stale = readStorefrontConfigCache(true);
+  if (stale) {
+    NEB.toast?.('Offline catalogus geladen. Ververs de pagina zodra je verbinding stabiel is.', 'error');
+    return stale;
+  }
+  throw lastErr || new Error('Catalogus laden mislukt');
+}
 
 window.report3dError = (productId, stage, err) => {
   const message = String(err?.message || err || '').slice(0, 500);
@@ -939,8 +1026,8 @@ async function loadHeroModel(product) {
   state.activeModel = null;
   paintRendererClear(state.renderer);
 
-  if (!has3d) {
-    setHeroMediaMode('2d');
+  if (!has3d || !shouldUseHero3d()) {
+    showHeroPosterFallback(product);
     return;
   }
 
@@ -1778,9 +1865,19 @@ async function addSelectedToCart() {
 }
 
 async function init() {
-  const config = (window.NEB_CONFIG && Array.isArray(window.NEB_CONFIG.products))
-    ? window.NEB_CONFIG
-    : await NEB.config();
+  let config;
+  try {
+    config = await resolveStorefrontConfig();
+  } catch (err) {
+    console.error(err);
+    showStorefrontCatalogError('Productcatalogus kon niet geladen worden. Controleer je internetverbinding en probeer opnieuw.');
+    updateReduceMotionNotice();
+    bindStorefrontEvents();
+    document.documentElement.classList.add('digitify-storefront-ready');
+    document.dispatchEvent(new CustomEvent('digitify:storefront-ready'));
+    NEB.toast('Producten laden mislukt', 'error');
+    return;
+  }
   state.config = config;
   window.NEB_CONFIG = config;
   if (window.NEB?.applyBranding) NEB.applyBranding(config);

@@ -2298,6 +2298,22 @@ body.theme-light .ph-box{background:rgba(0,0,0,0.03)}
     gap:clamp(.85rem, 1.5vw, 1.15rem);
     min-width:0;
 }
+.storefront-catalog-error{
+    grid-column:1 / -1;
+    padding:1.25rem 1.1rem;
+    border:1px solid rgba(239,68,68,.25);
+    border-radius:12px;
+    background:rgba(239,68,68,.06);
+    color:var(--text);
+}
+.storefront-catalog-error p{
+    margin:0 0 .85rem;
+    line-height:1.5;
+}
+.storefront-catalog-retry{
+    width:100%;
+    max-width:280px;
+}
 .storefront-product-card{
     min-height:152px;
     border:1px solid var(--border);
