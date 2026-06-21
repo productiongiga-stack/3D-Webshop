@@ -876,6 +876,61 @@ const DEFAULT_CONFIG = {
   ]
 };
 
+const DEFAULT_PRODUCTS_BY_ID = new Map(DEFAULT_CONFIG.products.map((p) => [p.id, p]));
+
+function hasStoredProductSizes(raw) {
+  if (!Array.isArray(raw) || !raw.length) return false;
+  return raw.some((entry) => {
+    if (entry && typeof entry === 'object') return !!String(entry.code || entry.size || '').trim();
+    return !!String(entry || '').trim();
+  });
+}
+
+function hasStoredColorHexes(raw) {
+  if (!Array.isArray(raw) || !raw.length) return false;
+  return raw.some((hex) => /^#?[0-9a-fA-F]{6}$/.test(String(hex || '').trim()));
+}
+
+function isPlaceholderProductSizes(raw) {
+  if (!Array.isArray(raw) || raw.length !== 1) return false;
+  const entry = raw[0];
+  if (!entry || typeof entry !== 'object') return false;
+  const code = String(entry.code || entry.size || '').toUpperCase();
+  const widthMm = Number(entry.widthMm || entry.width || 0);
+  const heightMm = Number(entry.heightMm || entry.height || 0);
+  return code === 'STD' && widthMm === 100 && heightMm === 100;
+}
+
+function mergeStoredProductWithDefaults(storedProduct) {
+  if (!storedProduct || typeof storedProduct !== 'object') return storedProduct;
+  const id = slugifyProductId(storedProduct.id || storedProduct.name);
+  const defaults = DEFAULT_PRODUCTS_BY_ID.get(id);
+  if (!defaults) return storedProduct;
+
+  const merged = { ...defaults, ...storedProduct };
+  const storedSizes = storedProduct.sizes || storedProduct.sizeSpecs;
+  const sizesCorrupted = !hasStoredProductSizes(storedSizes) || isPlaceholderProductSizes(storedSizes);
+  if (sizesCorrupted) {
+    merged.sizes = defaults.sizes;
+  }
+  if (!hasStoredColorHexes(storedProduct.colorHexes) || sizesCorrupted) {
+    merged.colorHexes = defaults.colorHexes;
+  }
+  if (!String(storedProduct.description || '').trim() && defaults.description) {
+    merged.description = defaults.description;
+  }
+  if (storedProduct.model3d && typeof storedProduct.model3d === 'object' && defaults.model3d) {
+    merged.model3d = { ...defaults.model3d, ...storedProduct.model3d };
+  }
+  const storedColorData = storedProduct.colorData && typeof storedProduct.colorData === 'object'
+    ? storedProduct.colorData
+    : null;
+  if (!storedColorData || !Object.keys(storedColorData).length) {
+    merged.colorData = defaults.colorData || storedColorData;
+  }
+  return merged;
+}
+
 // ── sanitizeProducts (pure function, no DB) ───────────────────────────────────
 function slugifyProductId(input, fallback = 'product') {
   const raw = String(input || '').trim().toLowerCase();
@@ -1141,7 +1196,8 @@ async function getConfig() {
   merged.email = { ...(DEFAULT_CONFIG.email || {}), ...(stored.email || {}) };
   merged.email.templates = { ...(DEFAULT_CONFIG.email?.templates || {}), ...((stored.email && stored.email.templates) || {}) };
   if (Array.isArray(merged.sizes)) merged.sizes = sortSizes(merged.sizes);
-  merged.products = sanitizeProducts(merged.products);
+  const storedProducts = Array.isArray(stored.products) ? stored.products : DEFAULT_CONFIG.products;
+  merged.products = sanitizeProducts(storedProducts.map(mergeStoredProductWithDefaults));
   merged.site = { ...(DEFAULT_CONFIG.site || {}), ...(stored.site || {}) };
   cachedConfig = merged;
   cachedConfigAt = Date.now();
@@ -1173,6 +1229,7 @@ module.exports = {
   DEFAULT_CONFIG,
   initDatabase,
   sanitizeProducts,
+  mergeStoredProductWithDefaults,
   USE_PG,
   get dbDegraded() { return dbDegraded; },
   pragma: () => {} // no-op for compat

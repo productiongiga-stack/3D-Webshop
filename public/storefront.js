@@ -80,7 +80,9 @@ const state = {
   miniVisible: new Set(),
   reduceMotion: window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches || false,
   pageVisible: true,
-  categoryFilter: 'all'
+  categoryFilter: 'all',
+  selectionPreview3dEnabled: false,
+  selectionPreview3dLoading: false
 };
 
 const touchLikeDevice = window.matchMedia?.('(hover: none), (pointer: coarse)')?.matches || false;
@@ -112,6 +114,12 @@ function updateReduceMotionNotice() {
 
 document.addEventListener('visibilitychange', () => {
   state.pageVisible = document.visibilityState === 'visible';
+  if (state.pageVisible) {
+    if (!state.frameId) animateThree();
+  } else if (state.frameId) {
+    cancelAnimationFrame(state.frameId);
+    state.frameId = 0;
+  }
 });
 
 const $ = (sel) => document.querySelector(sel);
@@ -196,7 +204,8 @@ function productShowsDesignerLink(product) {
 
 function productPreviewPoster(product) {
   const manifest = modelManifest(product);
-  return assetUrl(manifest.posterPath || product?.mockupPath || 'assets/tshirt_mockup.png');
+  const path = String(manifest.posterPath || product?.mockupPath || '').trim();
+  return path ? assetUrl(path) : '';
 }
 
 function paintRendererClear(renderer) {
@@ -228,8 +237,28 @@ function setHeroMediaMode(mode) {
   syncHeroChrome(mode);
 }
 
-function syncHeroChrome(_mode) {
-  /* Hero uses poster + crossfade; no spinner overlay. */
+function syncHeroChrome(mode) {
+  const chrome = $('#heroShowcaseChrome');
+  const label = $('#heroShowcaseLabel');
+  if (!chrome) return;
+  const is3dProduct = hasProductModel3d(state.selectedProduct);
+  if (!is3dProduct || mode === '2d') {
+    chrome.hidden = true;
+    return;
+  }
+  chrome.hidden = false;
+  if (mode === 'loading') {
+    chrome.hidden = false;
+    chrome.dataset.state = 'loading';
+    if (label) {
+      label.hidden = false;
+      label.textContent = '3D laden…';
+    }
+    return;
+  }
+  if (mode === '3d') {
+    chrome.hidden = true;
+  }
 }
 
 function scheduleSelectionPreview(product) {
@@ -407,6 +436,166 @@ function setSelectionStageMediaMode(mode) {
   setStageMediaMode($('#storefrontSelectionStage'), mode);
 }
 
+function setSelection3dLoader(visible) {
+  const el = $('#selection3dLoader');
+  if (el) el.hidden = !visible;
+  state.selectionPreview3dLoading = !!visible;
+  $('#storefrontSelectionStage')?.classList.toggle('is-selection-3d-loading', !!visible);
+  syncSelection3dToggleUi();
+}
+
+function syncSelection3dToggleUi() {
+  const btn = $('#selection3dToggle');
+  const label = $('#selection3dToggleLabel');
+  const stage = $('#storefrontSelectionStage');
+  const wrap = $('#storefrontSelectionPreview');
+  const product = state.selectedProduct;
+  const has3d = hasProductModel3d(product);
+  if (btn) {
+    btn.hidden = !has3d;
+    btn.disabled = state.selectionPreview3dLoading;
+    btn.setAttribute('aria-pressed', state.selectionPreview3dEnabled ? 'true' : 'false');
+  }
+  if (label) {
+    if (state.selectionPreview3dLoading) label.textContent = '3D laden…';
+    else if (state.selectionPreview3dEnabled) label.textContent = 'Terug naar foto';
+    else label.textContent = '3D bekijken';
+  }
+  stage?.classList.toggle('is-selection-3d-active', !!state.selectionPreview3dEnabled);
+  if (wrap && has3d) {
+    wrap.dataset.previewMode = state.selectionPreview3dEnabled ? '3d' : '2d';
+  }
+}
+
+function disableSelectionPreview3d() {
+  state.selectionPreview3dEnabled = false;
+  setSelectionStageMediaMode('2d');
+  const eyebrow = $('#selectionPreviewEyebrow');
+  if (eyebrow) eyebrow.textContent = 'Productafbeelding';
+  setSelection3dLoader(false);
+  syncSelection3dToggleUi();
+}
+
+async function enableSelectionPreview3d(product) {
+  if (!product || !hasProductModel3d(product)) return;
+  const wrap = $('#storefrontSelectionPreview');
+  const eyebrow = $('#selectionPreviewEyebrow');
+  const sp = state.selectionPreview;
+  const manifest = modelManifest(product);
+  const cached = sp.manifest
+    && String(sp.manifest.modelPath || '') === String(manifest.modelPath || '')
+    && sp.modelGroup?.children?.length;
+
+  state.selectionPreview3dEnabled = true;
+  if (cached) {
+    setSelectionStageMediaMode('3d');
+    if (wrap) wrap.dataset.previewMode = '3d';
+    if (eyebrow) eyebrow.textContent = '3D voorbeeld';
+    resizeSelectionPreview();
+    sp.renderer?.render(sp.scene, sp.camera);
+    syncSelection3dToggleUi();
+    return;
+  }
+
+  setSelection3dLoader(true);
+  setSelectionStageMediaMode('2d');
+  const token = Symbol('selection-preview');
+  sp.loadToken = token;
+  clearSelectionPreviewModel();
+  paintRendererClear(sp.renderer);
+  sp.manifest = null;
+
+  try {
+    const object = await loadModelScene(manifest, assetUrl);
+    if (sp.loadToken !== token) return;
+    ensureSelectionPreviewRenderer();
+    await prepareSceneTextures(sp.renderer, object);
+    configureRendererQuality(sp.renderer, manifest, 'hero');
+    const maxAnisotropy = modelQuality(manifest) === 'high'
+      ? (sp.renderer?.capabilities?.getMaxAnisotropy?.() || 4)
+      : Math.min(4, sp.renderer?.capabilities?.getMaxAnisotropy?.() || 4);
+    const previewManifest = manifestForSelectionPreview(manifest);
+    const displayModel = wrapModelForDisplay(object, previewManifest, {
+      edgeHighlight: inferModelFormat(manifest) === 'obj',
+      maxAnisotropy
+    });
+    sp.view.zoom = 1;
+    sp.drag.pausedAuto = false;
+    sp.modelGroup.rotation.set(0, 0, 0);
+    sp.modelGroup.add(displayModel);
+    sp.manifest = previewManifest;
+    sp.presentation = refreshPresentationForModel(
+      sp.renderer,
+      sp.scene,
+      sp.presentation,
+      displayModel,
+      manifest
+    );
+    setSelectionStageMediaMode('3d');
+    if (wrap) wrap.dataset.previewMode = '3d';
+    if (eyebrow) eyebrow.textContent = '3D voorbeeld';
+    resizeSelectionPreview();
+    sp.renderer.render(sp.scene, sp.camera);
+  } catch (err) {
+    console.warn('Selectie-3D laden mislukt:', err);
+    report3dError(product?.id, 'selection', err);
+    if (sp.loadToken !== token) return;
+    state.selectionPreview3dEnabled = false;
+    setSelectionStageMediaMode('2d');
+    if (wrap) wrap.dataset.previewMode = '2d';
+    if (eyebrow) eyebrow.textContent = 'Productafbeelding';
+    NEB.toast?.('3D preview kon niet geladen worden', 'error');
+  } finally {
+    setSelection3dLoader(false);
+    syncSelection3dToggleUi();
+  }
+}
+
+async function toggleSelectionPreview3d() {
+  if (state.selectionPreview3dLoading) return;
+  if (state.selectionPreview3dEnabled) {
+    disableSelectionPreview3d();
+    return;
+  }
+  await enableSelectionPreview3d(state.selectedProduct);
+}
+
+function prepareSelectionPreview(product) {
+  const wrap = $('#storefrontSelectionPreview');
+  const poster = $('#selection3dPoster');
+  const label = $('#selectionPreviewLabel');
+  const eyebrow = $('#selectionPreviewEyebrow');
+  if (!wrap || !poster || !product) return;
+
+  state.selectionPreview3dEnabled = false;
+  state.selectionPreview3dLoading = false;
+  const token = Symbol('selection-preview');
+  state.selectionPreview.loadToken = token;
+  clearSelectionPreviewModel();
+  paintRendererClear(state.selectionPreview.renderer);
+  state.selectionPreview.manifest = null;
+
+  const has3d = hasProductModel3d(product);
+  const posterUrl = productPreviewPoster(product);
+  poster.src = posterUrl || '';
+  poster.alt = product.name || 'Product';
+  poster.hidden = !posterUrl;
+  const posterLayer = poster.closest('.storefront-media-layer--2d');
+  posterLayer?.classList.add('digitify-media-stage');
+  if (posterUrl) NEB.wireMediaImage(poster);
+  else posterLayer?.classList.add('is-media-loading');
+  if (label) label.textContent = product.name || 'Product';
+  if (eyebrow) eyebrow.textContent = has3d ? 'Productafbeelding' : 'Productafbeelding';
+  wrap.dataset.previewMode = '2d';
+  setSelectionStageMediaMode('2d');
+  setSelection3dLoader(false);
+  syncSelection3dToggleUi();
+}
+
+async function loadSelectionPreview(product) {
+  prepareSelectionPreview(product);
+}
+
 function filteredProducts() {
   const filter = String(state.categoryFilter || 'all').toLowerCase();
   if (filter === '3d') return state.products.filter((p) => p.category === '3d' || hasProductModel3d(p));
@@ -442,9 +631,10 @@ function productCardMedia(product) {
     ? `<canvas class="storefront-mini-canvas" data-mini-product="${escapeHtml(product.id)}" aria-hidden="true" aria-describedby="storefront-poster-${escapeHtml(product.id)}"></canvas>`
     : '';
   return `
-    <span class="storefront-product-media${hasMini3d ? ' has-3d' : ''}" data-has-3d="${hasMini3d ? 'true' : 'false'}">
+    <span class="storefront-product-media digitify-media-stage is-media-loading${hasMini3d ? ' has-3d' : ''}" data-has-3d="${hasMini3d ? 'true' : 'false'}">
       ${mini3d}
-      <img id="storefront-poster-${escapeHtml(product.id)}" class="storefront-product-thumb${hasMini3d ? ' storefront-mini-poster' : ''}" src="${escapeHtml(poster)}" alt="${escapeHtml(product.name || 'Product')}" loading="lazy" onerror="this.onerror=null;this.src='/assets/tshirt_mockup.png';">
+      <img id="storefront-poster-${escapeHtml(product.id)}" class="storefront-product-thumb${hasMini3d ? ' storefront-mini-poster' : ''}" src="${escapeHtml(poster)}" alt="${escapeHtml(product.name || 'Product')}" loading="lazy" decoding="async" data-digitify-media>
+      ${NEB.mediaLoaderHtml('sm')}
     </span>`;
 }
 
@@ -510,10 +700,15 @@ function renderHero() {
   const posterEl = $('#hero3dPoster');
   const heroHas3d = hasProductModel3d(product);
   if (posterEl) {
-    posterEl.hidden = false;
-    posterEl.src = poster;
-    posterEl.alt = product.name || 'Product';
-    if (heroHas3d) posterEl.setAttribute('fetchpriority', 'high');
+    if (heroHas3d) {
+      posterEl.hidden = true;
+      posterEl.removeAttribute('src');
+      posterEl.alt = '';
+    } else {
+      posterEl.hidden = false;
+      posterEl.src = poster;
+      posterEl.alt = product.name || 'Product';
+    }
   }
   const designLink = $('#heroDesignLink');
   if (designLink) {
@@ -530,9 +725,11 @@ function renderHero() {
 }
 
 function renderOptions() {
+  const host = $('#storefrontProducts');
+  if (!host) return;
   const selectedId = String(state.selectedProduct?.id || '');
   const visible = filteredProducts();
-  $('#storefrontProducts').innerHTML = visible.map((product) => {
+  host.innerHTML = visible.map((product) => {
     const active = String(product.id || '') === selectedId;
     const badge = (product.category === '3d' || hasProductModel3d(product))
       ? '<span class="product-badge-3d">3D preview</span>'
@@ -560,6 +757,7 @@ function renderOptions() {
       <span style="background:${escapeHtml(color.hex)}"></span>
     </button>
   `).join('');
+  NEB.wireMediaImages($('#storefrontProducts'));
   renderMiniPreviews();
 }
 
@@ -670,7 +868,7 @@ async function loadHeroModel(product) {
   const manifest = modelManifest(product);
   const has3d = hasProductModel3d(product) && manifest.enabled && !!manifest.modelPath;
 
-  if (state.modelGroup) state.modelGroup.clear();
+  if (state.modelGroup) clearHeroModelGroup();
   state.activeModel = null;
   paintRendererClear(state.renderer);
 
@@ -679,14 +877,21 @@ async function loadHeroModel(product) {
     return;
   }
 
-  setHeroMediaMode('2d');
+  setHeroMediaMode('loading');
   try {
     configureRendererQuality(state.renderer, manifest, 'hero');
     configureHeroRendererSurface(state.renderer, state.scene);
     const object = await loadModelScene(manifest, assetUrl);
-    if (state.loadingToken !== token) return;
+    if (state.loadingToken !== token) {
+      disposeObject3d(object);
+      return;
+    }
     await prepareSceneTextures(state.renderer, object);
-    state.modelGroup.clear();
+    if (state.loadingToken !== token) {
+      disposeObject3d(object);
+      return;
+    }
+    clearHeroModelGroup();
     const maxAnisotropy = modelQuality(manifest) === 'high'
       ? (state.renderer?.capabilities?.getMaxAnisotropy?.() || 4)
       : Math.min(4, state.renderer?.capabilities?.getMaxAnisotropy?.() || 4);
@@ -714,7 +919,28 @@ async function loadHeroModel(product) {
     console.warn('3D model laden mislukt:', err);
     report3dError(product?.id, 'hero', err);
     if (state.loadingToken !== token) return;
+    clearHeroModelGroup();
+    state.activeModel = null;
     setHeroMediaMode('2d');
+    const posterEl = $('#hero3dPoster');
+    const poster = productPreviewPoster(product);
+    if (posterEl) {
+      posterEl.hidden = false;
+      if (poster) {
+        posterEl.src = poster;
+        posterEl.alt = product?.name || 'Product';
+        NEB.wireMediaImage(posterEl);
+      }
+    }
+  }
+}
+
+function clearHeroModelGroup() {
+  if (!state.modelGroup) return;
+  while (state.modelGroup.children.length) {
+    const child = state.modelGroup.children[0];
+    state.modelGroup.remove(child);
+    disposeObject3d(child);
   }
 }
 
@@ -787,80 +1013,9 @@ function resizeSelectionPreview() {
   if (displayModel) fitSelectionCameraToModel(displayModel);
 }
 
-async function loadSelectionPreview(product) {
-  const wrap = $('#storefrontSelectionPreview');
-  const canvas = $('#selection3dCanvas');
-  const poster = $('#selection3dPoster');
-  const label = $('#selectionPreviewLabel');
-  const eyebrow = $('#selectionPreviewEyebrow');
-  if (!wrap || !canvas || !poster || !product) return;
-
-  const stage = $('#storefrontSelectionStage');
-  const manifest = modelManifest(product);
-  const has3d = hasProductModel3d(product);
-  const posterUrl = productPreviewPoster(product);
-
-  poster.src = posterUrl;
-  poster.alt = product.name || 'Product';
-  label.textContent = product.name || 'Product';
-  eyebrow.textContent = has3d ? '3D voorbeeld' : 'Productafbeelding';
-  wrap.dataset.previewMode = has3d ? '3d' : '2d';
-
-  const token = Symbol('selection-preview');
-  state.selectionPreview.loadToken = token;
-  clearSelectionPreviewModel();
-  paintRendererClear(state.selectionPreview.renderer);
-  state.selectionPreview.manifest = null;
-
-  if (!has3d) {
-    setSelectionStageMediaMode('2d');
-    return;
-  }
-
-  setSelectionStageMediaMode('2d');
-  try {
-    const object = await loadModelScene(manifest, assetUrl);
-    if (state.selectionPreview.loadToken !== token) return;
-    ensureSelectionPreviewRenderer();
-    await prepareSceneTextures(state.selectionPreview.renderer, object);
-    configureRendererQuality(state.selectionPreview.renderer, manifest, 'hero');
-    const maxAnisotropy = modelQuality(manifest) === 'high'
-      ? (state.selectionPreview.renderer?.capabilities?.getMaxAnisotropy?.() || 4)
-      : Math.min(4, state.selectionPreview.renderer?.capabilities?.getMaxAnisotropy?.() || 4);
-    const previewManifest = manifestForSelectionPreview(manifest);
-    const displayModel = wrapModelForDisplay(object, previewManifest, {
-      edgeHighlight: inferModelFormat(manifest) === 'obj',
-      maxAnisotropy
-    });
-    state.selectionPreview.view.zoom = 1;
-    state.selectionPreview.drag.pausedAuto = false;
-    state.selectionPreview.modelGroup.rotation.set(0, 0, 0);
-    state.selectionPreview.modelGroup.add(displayModel);
-    state.selectionPreview.manifest = previewManifest;
-    state.selectionPreview.presentation = refreshPresentationForModel(
-      state.selectionPreview.renderer,
-      state.selectionPreview.scene,
-      state.selectionPreview.presentation,
-      displayModel,
-      manifest
-    );
-    setSelectionStageMediaMode('3d');
-    resizeSelectionPreview();
-    state.selectionPreview.renderer.render(
-      state.selectionPreview.scene,
-      state.selectionPreview.camera
-    );
-  } catch (err) {
-    console.warn('Selectie-3D laden mislukt:', err);
-    report3dError(product?.id, 'selection', err);
-    if (state.selectionPreview.loadToken !== token) return;
-    setSelectionStageMediaMode('2d');
-    wrap.dataset.previewMode = '2d';
-  }
-}
-
 function disposeMiniPreviewEntry(entry) {
   if (!entry) return;
+  entry.loadGen = Symbol('disposed');
   entry.active = false;
   if (entry.scene && entry.presentation) {
     disposePresentationState(entry.scene, entry.presentation);
@@ -926,9 +1081,15 @@ async function ensureMiniPreview(product) {
   state.miniPreviews.set(productId, entry);
 
   entry.loadingPromise = (async () => {
+    const loadGen = Symbol('mini-load');
+    entry.loadGen = loadGen;
     try {
       const manifest = modelManifest(product);
       const object = await loadModelScene(manifest, assetUrl);
+      if (entry.loadGen !== loadGen || state.miniPreviews.get(productId) !== entry) {
+        disposeObject3d(object);
+        return null;
+      }
       const media = canvas.closest('.storefront-product-media');
       const width = Math.max(72, Math.round(media?.clientWidth || MINI_PREVIEW_WIDTH));
       const height = Math.max(72, Math.round(media?.clientHeight || MINI_PREVIEW_HEIGHT));
@@ -1083,7 +1244,16 @@ function productsWith3d() {
 
 function disposeHeroDockEntry(entry) {
   if (!entry) return;
-  if (entry.displayModel) {
+  entry.loadGen = Symbol('disposed');
+  if (entry.scene && entry.presentation) {
+    disposePresentationState(entry.scene, entry.presentation);
+    entry.presentation = null;
+  }
+  if (entry.displayModel && entry.modelGroup) {
+    entry.modelGroup.remove(entry.displayModel);
+    disposeObject3d(entry.displayModel);
+    entry.displayModel = null;
+  } else if (entry.displayModel) {
     disposeObject3d(entry.displayModel);
     entry.displayModel = null;
   }
@@ -1122,7 +1292,12 @@ function updateHeroDockMediaClass(productId) {
   const stage = canvas?.closest('.storefront-hero-3d-dock-stage');
   const entry = state.heroDockPreviews.get(id);
   const live = !!(entry?.active && entry?.ready);
-  if (stage) stage.classList.toggle('is-dock-3d-live', live);
+  const loading = !!(entry?.active && !entry?.ready && !entry?.failed && (entry?.loadingPromise || entry?.loading));
+  if (stage) {
+    stage.classList.toggle('is-dock-3d-live', live);
+    stage.classList.toggle('is-dock-3d-loading', loading);
+    stage.classList.toggle('is-dock-3d-error', !!entry?.failed);
+  }
 }
 
 async function ensureHeroDockPreview(product) {
@@ -1136,14 +1311,23 @@ async function ensureHeroDockPreview(product) {
   const canvas = document.querySelector(`.storefront-hero-dock-canvas[data-dock-product="${CSS.escape(productId)}"]`);
   if (!canvas) return null;
 
-  const entry = existing || { productId, ready: false, active: false };
+  const entry = existing || { productId, ready: false, active: false, failed: false };
   entry.canvas = canvas;
+  entry.loading = true;
+  entry.failed = false;
   state.heroDockPreviews.set(productId, entry);
+  updateHeroDockMediaClass(productId);
 
   entry.loadingPromise = (async () => {
+    const loadGen = Symbol('dock-load');
+    entry.loadGen = loadGen;
     try {
       const manifest = modelManifest(product);
       const object = await loadModelScene(manifest, assetUrl);
+      if (entry.loadGen !== loadGen || state.heroDockPreviews.get(productId) !== entry) {
+        disposeObject3d(object);
+        return null;
+      }
       const stage = canvas.closest('.storefront-hero-3d-dock-stage');
       const width = Math.max(56, Math.round(stage?.clientWidth || HERO_DOCK_PREVIEW_WIDTH));
       const height = Math.max(56, Math.round(stage?.clientHeight || HERO_DOCK_PREVIEW_HEIGHT));
@@ -1184,16 +1368,22 @@ async function ensureHeroDockPreview(product) {
         miniManifest,
         presentation,
         ready: true,
+        loading: false,
+        failed: false,
         loadingPromise: null
       });
+      updateHeroDockMediaClass(productId);
       resizeHeroDockEntry(entry);
       entry.renderer.render(entry.scene, entry.camera);
       return entry;
     } catch (err) {
       console.warn('Hero dock 3D laden mislukt:', productId, err);
       report3dError(productId, 'hero-dock', err);
+      entry.loading = false;
+      entry.failed = true;
+      entry.loadingPromise = null;
       disposeHeroDockEntry(entry);
-      state.heroDockPreviews.delete(productId);
+      updateHeroDockMediaClass(productId);
       return null;
     }
   })();
@@ -1216,7 +1406,7 @@ async function setHeroDockPreviewLive(productId, live) {
   state.heroDockPreviews.set(id, entry);
   updateHeroDockMediaClass(id);
 
-  if (!live || prefersMobilePosterOnly) return;
+  if (!live) return;
 
   const loaded = await ensureHeroDockPreview(product);
   if (!loaded?.ready) return;
@@ -1240,7 +1430,60 @@ function bindHero3dDock() {
   });
 }
 
+function heroDockItemMarkup(product, selectedId) {
+  const id = escapeHtml(product.id);
+  const active = String(product.id) === selectedId;
+  const label = escapeHtml(product.name || 'Product');
+  const poster = escapeHtml(productPreviewPoster(product));
+  return `
+      <button type="button" class="storefront-hero-3d-dock-item${active ? ' is-active' : ''}" data-dock-product="${id}" aria-label="${label}" aria-pressed="${active ? 'true' : 'false'}" title="${label}">
+        <span class="storefront-hero-3d-dock-stage digitify-media-stage is-media-loading">
+          <canvas class="storefront-hero-dock-canvas" data-dock-product="${id}" aria-hidden="true"></canvas>
+          <img class="storefront-hero-dock-poster" src="${poster}" alt="" loading="lazy" decoding="async" data-digitify-media>
+          ${NEB.mediaLoaderHtml('sm')}
+          <span class="storefront-hero-dock-loader" aria-hidden="true">
+            <span class="storefront-hero-dock-loader-cube"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+          </span>
+          <span class="storefront-hero-dock-error" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 3 4 7.5v9L12 21l8-4.5v-9L12 3Z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/></svg>
+          </span>
+        </span>
+      </button>`;
+}
+
+function releaseInactiveHeroDockPreviews(selectedId) {
+  const keepId = String(selectedId || '');
+  state.heroDockPreviews.forEach((entry, id) => {
+    if (String(id) === keepId) return;
+    entry.active = false;
+    updateHeroDockMediaClass(id);
+    if (entry.loadingPromise) entry.loadingPromise = null;
+    entry.loading = false;
+    disposeHeroDockEntry(entry);
+    state.heroDockPreviews.delete(id);
+  });
+}
+
+function syncHeroDockPreviews(items) {
+  const list = items || productsWith3d();
+  const selectedId = String(state.selectedProduct?.id || '');
+  releaseInactiveHeroDockPreviews(selectedId);
+  list.forEach((product) => {
+    const id = String(product.id || '');
+    const shouldLive = id === selectedId && !prefersMobilePosterOnly;
+    setHeroDockPreviewLive(id, shouldLive);
+  });
+}
+
 function renderHero3dDock() {
+  try {
+    renderHero3dDockInner();
+  } catch (err) {
+    console.warn('Hero dock render mislukt:', err);
+  }
+}
+
+function renderHero3dDockInner() {
   const dock = $('#hero3dDock');
   const track = $('#hero3dDockTrack');
   if (!dock || !track) return;
@@ -1265,25 +1508,16 @@ function renderHero3dDock() {
       btn.classList.toggle('is-active', active);
       btn.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
+    syncHeroDockPreviews(items);
     return;
   }
 
+  disposeAllHeroDockPreviews();
   track.dataset.itemIds = itemIds;
-  track.innerHTML = items.map((product) => {
-    const id = escapeHtml(product.id);
-    const active = String(product.id) === selectedId;
-    const poster = escapeHtml(productPreviewPoster(product));
-    const label = escapeHtml(product.name || 'Product');
-    return `
-      <button type="button" class="storefront-hero-3d-dock-item${active ? ' is-active' : ''}" data-dock-product="${id}" aria-label="${label}" aria-pressed="${active ? 'true' : 'false'}" title="${label}">
-        <span class="storefront-hero-3d-dock-stage">
-          <canvas class="storefront-hero-dock-canvas" data-dock-product="${id}" aria-hidden="true"></canvas>
-          <img class="storefront-hero-dock-poster" src="${poster}" alt="" loading="lazy">
-        </span>
-      </button>`;
-  }).join('');
+  track.innerHTML = items.map((product) => heroDockItemMarkup(product, selectedId)).join('');
 
-  items.forEach((product) => setHeroDockPreviewLive(product.id, true));
+  syncHeroDockPreviews(items);
+  NEB.wireMediaImages(track);
 }
 
 function animateThree(timestamp = performance.now()) {
@@ -1321,7 +1555,6 @@ function animateThree(timestamp = performance.now()) {
     if (sp.presentation?.shadow && selModel) {
       updateContactShadowPlane(sp.presentation.shadow, selModel);
     }
-    paintRendererClear(sp.renderer);
     sp.renderer.render(sp.scene, sp.camera);
   }
 
@@ -1331,7 +1564,6 @@ function animateThree(timestamp = performance.now()) {
     if (!state.reduceMotion) {
       entry.modelGroup.rotation.y += MINI_PREVIEW_ROTATE_SPEED * delta;
     }
-    paintRendererClear(entry.renderer);
     entry.renderer.render(entry.scene, entry.camera);
   });
 
@@ -1340,7 +1572,6 @@ function animateThree(timestamp = performance.now()) {
     if (!state.reduceMotion) {
       entry.modelGroup.rotation.y += HERO_DOCK_ROTATE_SPEED * delta;
     }
-    paintRendererClear(entry.renderer);
     entry.renderer.render(entry.scene, entry.camera);
   });
 }
@@ -1445,10 +1676,21 @@ async function init() {
     || state.products.find((p) => p.isFeatured)
     || state.products.find((p) => p.isDefault)
     || state.products[0];
-  if (!featured) return;
+  if (!featured) {
+    updateReduceMotionNotice();
+    bindStorefrontEvents();
+    document.documentElement.classList.add('digitify-storefront-ready');
+    document.dispatchEvent(new CustomEvent('digitify:storefront-ready'));
+    return;
+  }
   selectProduct(featured);
   updateReduceMotionNotice();
+  bindStorefrontEvents();
+  document.documentElement.classList.add('digitify-storefront-ready');
+  document.dispatchEvent(new CustomEvent('digitify:storefront-ready'));
+}
 
+function bindStorefrontEvents() {
   $('#storefrontCategoryFilters')?.addEventListener('click', (event) => {
     const tab = event.target.closest('[data-category-filter]');
     if (!tab) return;
@@ -1472,13 +1714,15 @@ async function init() {
     if (!swatch) return;
     state.selectedColorHex = normalizeHex(swatch.dataset.color);
     state.selectedColorName = String(swatch.dataset.name || '').trim();
-    renderOptions();
+    $('#storefrontColors')?.querySelectorAll('[data-color]').forEach((el) => {
+      el.classList.toggle('active', normalizeHex(el.dataset.color) === state.selectedColorHex);
+    });
   });
   $('#storefrontAddToCart')?.addEventListener('click', addSelectedToCart);
   $('#heroAddToCart')?.addEventListener('click', addSelectedToCart);
-
-  document.documentElement.classList.add('digitify-storefront-ready');
-  document.dispatchEvent(new CustomEvent('digitify:storefront-ready'));
+  $('#selection3dToggle')?.addEventListener('click', () => {
+    toggleSelectionPreview3d().catch((err) => console.error(err));
+  });
 }
 
 init().catch((err) => {

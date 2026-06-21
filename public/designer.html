@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="digitify-shell-boot.js?v=7"></script>
+  <script src="digitify-shell-boot.js?v=10"></script>
     <title>Digitify Designer — Ontwerp op mockup</title>
     <meta name="description" content="Ontwerp je eigen NFC-producten, displaymateriaal en merkdragers met live preview en een naadloze Digitify shopflow.">
     <meta property="og:type" content="website">
@@ -21,7 +21,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css?v=7">
     <link rel="stylesheet" href="app.css?v=7">
-    <link rel="stylesheet" href="digitify-shell.css?v=7">
+    <link rel="stylesheet" href="digitify-shell.css?v=11">
 </head>
 <body class="theme-light digitify-shop-body" data-nav="designer" data-page-title="Designer">
 <!-- ============================================
@@ -267,8 +267,8 @@
             <div class="preview-panel">
                 <div class="preview-canvas" id="previewCanvas">
                     <div class="canvas-glow"></div>
-                    <div class="tshirt-3d tshirt-mockup" id="tshirt3d" aria-label="T-shirt preview">
-                        <img class="mockup-base" id="mockupBase" src="assets/tshirt_mockup.png" alt="T-shirt mockup">
+                    <div class="tshirt-3d tshirt-mockup digitify-media-stage is-media-loading" id="tshirt3d" aria-label="Product preview">
+                        <img class="mockup-base" id="mockupBase" alt="Product mockup" data-digitify-media>
                         <div class="shirt-tint-overlay" id="shirtTintOverlay" aria-hidden="true"></div>
                         <div class="mockup-placeholder" id="designPlaceholder">
                             <div class="ph-box">
@@ -332,8 +332,8 @@
             <div class="product-preview-body">
                 <div class="preview-canvas preview-canvas-modal" id="productPreviewCanvas">
                     <div class="canvas-glow"></div>
-                    <div class="tshirt-3d tshirt-mockup preview-tshirt-static" id="productPreviewTshirt" aria-label="Live project preview">
-                        <img class="mockup-base" id="productPreviewMockupBase" src="assets/tshirt_mockup.png" alt="Product mockup">
+                    <div class="tshirt-3d tshirt-mockup preview-tshirt-static digitify-media-stage is-media-loading" id="productPreviewTshirt" aria-label="Live project preview">
+                        <img class="mockup-base" id="productPreviewMockupBase" alt="Product mockup" data-digitify-media>
                         <div class="shirt-tint-overlay" id="productPreviewTint" aria-hidden="true"></div>
                         <div class="mockup-placeholder" id="productPreviewPlaceholder">
                             <div class="ph-box">
@@ -350,10 +350,10 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-    <script src="app.js?v=8"></script>
-    <script src="digitify-shell.js?v=7"></script>
+    <script src="app.js?v=11"></script>
+    <script src="digitify-shell.js?v=10"></script>
     <script src="site-page.js?v=7"></script>
     <script src="designer-boot.js"></script>
-    <script src="script.js"></script>
+    <script src="script.js?v=12"></script>
 </body>
 </html>

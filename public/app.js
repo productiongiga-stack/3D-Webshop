@@ -64,6 +64,7 @@ const NEB = (() => {
   }
 
   let configRequest = null;
+  let meRequest = null;
 
   const json = (path, opts = {}) => {
     if (window.location.protocol === 'file:' && String(path || '').startsWith('/')) {
@@ -148,7 +149,28 @@ const NEB = (() => {
     shouldUseChunkedUpload,
     uploadChunked,
 
-    me: () => json('/api/auth/me').then(d => d.user),
+    me: () => {
+      if (window.NEB_USER) return Promise.resolve(window.NEB_USER);
+      if (!meRequest) {
+        if (window.__NEB_ME_PROMISE) {
+          meRequest = window.__NEB_ME_PROMISE
+            .then((user) => {
+              window.__NEB_ME_PROMISE = null;
+              if (user) window.NEB_USER = user;
+              return user || null;
+            })
+            .catch(() => null);
+        } else {
+          meRequest = json('/api/auth/me')
+            .then((d) => {
+              const user = d?.user || null;
+              if (user) window.NEB_USER = user;
+              return user;
+            });
+        }
+      }
+      return meRequest;
+    },
     config: () => {
       if (!configRequest) {
         if (window.__NEB_CONFIG_PROMISE) {
@@ -268,21 +290,34 @@ const NEB = (() => {
       return (user.email || '?')[0].toUpperCase();
     },
 
+    cartHeaderSlot() {
+      return document.querySelector('.digitify-site-header [data-cart-icon]')
+        || document.querySelector('.digitify-header__shop-tools [data-cart-icon]')
+        || document.querySelector('[data-cart-icon]');
+    },
+
     navUserSlot() {
       return document.querySelector('.digitify-site-header [data-nav-user]')
+        || document.querySelector('.digitify-header__auth[data-nav-user]')
         || document.querySelector('.digitify-header__auth [data-nav-user]')
         || document.querySelector('[data-nav-user]');
     },
 
+    _navMenuCloseHandler: null,
+
     async paintNav(opts = {}) {
       const slot = this.navUserSlot();
       if (!slot) return;
+      await this.paintCart();
       const user = window.NEB_USER || await this.me().catch(() => null);
       if (!user) {
+        if (this._navMenuCloseHandler) {
+          document.removeEventListener('click', this._navMenuCloseHandler);
+          this._navMenuCloseHandler = null;
+        }
         slot.innerHTML = `
           <a class="digitify-header__auth-link" href="/login">Inloggen</a>
           <a class="digitify-header__auth-link digitify-header__auth-link--solid" href="/register">Aanmelden</a>`;
-        await this.paintCart();
         return null;
       }
       const isStaff = user.role === 'OWNER' || user.role === 'ADMIN';
@@ -314,14 +349,18 @@ const NEB = (() => {
         e.preventDefault();
         menu.classList.toggle('open');
       });
-      document.addEventListener('click', (e) => {
-        if (!menu.contains(e.target)) menu.classList.remove('open');
-      });
+      if (this._navMenuCloseHandler) {
+        document.removeEventListener('click', this._navMenuCloseHandler);
+      }
+      this._navMenuCloseHandler = (e) => {
+        const openMenu = document.getElementById('navUserMenu');
+        if (openMenu && !openMenu.contains(e.target)) openMenu.classList.remove('open');
+      };
+      document.addEventListener('click', this._navMenuCloseHandler);
       menu.querySelector('[data-logout]').addEventListener('click', async () => {
         await this.post('/api/auth/logout');
         location.href = '/login';
       });
-      this.paintCart();
       return user;
     },
 
@@ -487,7 +526,7 @@ const NEB = (() => {
     },
 
     async paintCart() {
-      const slot = document.querySelector('[data-cart-icon]');
+      const slot = this.cartHeaderSlot();
       if (!slot) return;
       const user = window.NEB_USER || await this.me().catch(() => null);
       let count = 0;
@@ -498,8 +537,8 @@ const NEB = (() => {
         } catch {}
       }
       slot.innerHTML = `
-        <a class="nav-cart" href="/cart" title="Winkelmand" aria-label="Winkelmand">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></svg>
+        <a class="nav-cart" href="/cart" title="Winkelmand" aria-label="Winkelmand${count ? `, ${count} items` : ''}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></svg>
           ${count ? `<span class="cart-badge" id="navCartBadge">${count}</span>` : ''}
         </a>`;
     },
@@ -528,6 +567,67 @@ const NEB = (() => {
 
     refreshCartBadge() {
       return this.paintCart();
+    },
+
+    mediaLoaderHtml(size = 'md') {
+      const cls = size === 'sm'
+        ? 'digitify-load-cube--sm'
+        : size === 'lg'
+          ? 'digitify-load-cube--lg'
+          : 'digitify-load-cube--md';
+      return `<span class="digitify-media-loader" aria-hidden="true"><span class="digitify-load-cube ${cls}"><i></i><i></i><i></i><i></i><i></i><i></i></span></span>`;
+    },
+
+    wireMediaImage(img) {
+      if (!img) return;
+      let stage = img.closest('.digitify-media-stage');
+      if (!stage) {
+        stage = document.createElement('span');
+        stage.className = 'digitify-media-stage is-media-loading';
+        img.parentNode?.insertBefore(stage, img);
+        stage.appendChild(img);
+        stage.insertAdjacentHTML('beforeend', this.mediaLoaderHtml('md'));
+      }
+      if (!stage.querySelector('.digitify-media-loader')) {
+        stage.insertAdjacentHTML('beforeend', this.mediaLoaderHtml('md'));
+      }
+      if (img.__digitifyMediaAbort) img.__digitifyMediaAbort.abort();
+      const ac = new AbortController();
+      img.__digitifyMediaAbort = ac;
+      const { signal } = ac;
+      const show = () => stage.classList.add('is-media-loading');
+      const hide = () => stage.classList.remove('is-media-loading');
+      const fail = () => {
+        img.removeAttribute('src');
+        img.hidden = true;
+        show();
+      };
+      const sync = () => {
+        const rawSrc = String(img.getAttribute('src') || '').trim();
+        const isGenericFallback = /tshirt_mockup/i.test(rawSrc);
+        if (!rawSrc || isGenericFallback) {
+          if (isGenericFallback) {
+            img.removeAttribute('src');
+            img.hidden = true;
+          }
+          show();
+          return;
+        }
+        img.hidden = false;
+        if (img.complete && img.naturalWidth > 0) hide();
+        else {
+          show();
+          img.addEventListener('load', hide, { once: true, signal });
+          img.addEventListener('error', fail, { once: true, signal });
+        }
+      };
+      img.dataset.mediaBound = '1';
+      sync();
+    },
+
+    wireMediaImages(root) {
+      const scope = root && root.querySelectorAll ? root : document;
+      scope.querySelectorAll('img[data-digitify-media]').forEach((img) => this.wireMediaImage(img));
     }
   };
 })();
@@ -548,4 +648,12 @@ document.addEventListener('DOMContentLoaded', () => {
       })
       .catch(() => {});
   }
+  if (document.querySelector('.digitify-site-header')) {
+    NEB.paintNav().catch(() => {});
+  } else {
+    document.addEventListener('digitify:shell-ready', () => {
+      NEB.paintNav().catch(() => {});
+    }, { once: true });
+  }
+  NEB.wireMediaImages(document);
 });

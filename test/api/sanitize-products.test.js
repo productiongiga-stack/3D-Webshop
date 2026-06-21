@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { sanitizeProducts } = require('../../db');
+const { sanitizeProducts, mergeStoredProductWithDefaults, DEFAULT_CONFIG } = require('../../db');
 
 describe('sanitizeProducts model3d', () => {
   it('preserves poster and scale', () => {
@@ -98,5 +98,35 @@ describe('sanitizeProducts model3d', () => {
       mockupPath: 'assets/products/mockup-123.png'
     }]);
     assert.equal(out[0].designerEnabled, undefined);
+  });
+
+  it('restores catalog sizes and colors when stored product data was wiped', () => {
+    const merged = mergeStoredProductWithDefaults({
+      id: 'led-lichtbak-kabel',
+      name: 'LED lichtbak A3/A4 (kabel)',
+      enabled: true,
+      mockupPath: 'assets/products/digitify/led-lichtbak-kabel/mock.png',
+      basePrice: 49.95,
+      sizes: [],
+      colorHexes: []
+    });
+    const out = sanitizeProducts([merged]);
+    assert.equal(out[0].sizes[0].code, 'A4');
+    assert.equal(out[0].sizes[0].widthMm, 297);
+    assert.deepEqual(out[0].colorHexes, ['#ffffff']);
+  });
+
+  it('restores catalog sizes when generic STD 100x100 placeholder was saved', () => {
+    const merged = mergeStoredProductWithDefaults({
+      id: 'nfc-polsbandjes',
+      name: 'NFC polsbandjes',
+      enabled: true,
+      sizes: [{ code: 'STD', widthMm: 100, heightMm: 100 }],
+      colorHexes: ['#0b0b0b']
+    });
+    const out = sanitizeProducts([merged]);
+    assert.equal(out[0].sizes[0].code, 'STD');
+    assert.equal(out[0].sizes[0].widthMm, 250);
+    assert.deepEqual(out[0].colorHexes, ['#ffffff', '#0b0b0b', '#ffaf51']);
   });
 });

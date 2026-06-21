@@ -70,12 +70,14 @@
     }
     host.innerHTML = products.map((p) => {
       const price = '€' + productPrice(p, cfg).toFixed(2).replace('.', ',');
-      const img = '/' + String(p.mockupPath || 'assets/tshirt_mockup.png').replace(/^\/+/, '');
+      const imgPath = String(p.mockupPath || '').trim().replace(/^\/+/, '');
+      const img = imgPath ? `/${imgPath}` : '';
       const badge = has3d(p) ? '<span class="product-badge-3d">3D preview</span>' : '';
       const link = has3d(p) ? `/?product=${encodeURIComponent(p.id)}` : `/?product=${encodeURIComponent(p.id)}`;
       return `
-        <article class="shop-card">
-          <img src="${img}" alt="${escapeHtml(String(p.name || 'Product'))}">
+        <article class="shop-card digitify-media-stage is-media-loading">
+          <img src="${img}" alt="${escapeHtml(String(p.name || 'Product'))}" loading="lazy" decoding="async" data-digitify-media>
+          ${NEB.mediaLoaderHtml('sm')}
           ${badge}
           <h3>${escapeHtml(String(p.name || 'Product'))}</h3>
           <p>${escapeHtml(String(p.description || ''))}</p>
@@ -83,6 +85,7 @@
           <p style="margin-top:.75rem"><a class="btn btn-ghost btn-sm" href="${link}" style="text-decoration:none">${has3d(p) ? 'Bekijk in 3D' : 'Bestellen'}</a></p>
         </article>`;
     }).join('');
+    NEB.wireMediaImages(host);
   }
 
   async function init() {

@@ -284,6 +284,21 @@ function _nebMain() {
         return String(product?.mockupPath || '').trim().replace(/^\/+/, '');
     }
 
+    function isGenericMockupPath(path) {
+        const p = String(path || '').trim().replace(/^\/+/, '').toLowerCase();
+        return !p || p.includes('tshirt_mockup') || p.endsWith('tshirt_mockup.png');
+    }
+
+    function resolveMockupPath(raw) {
+        const p = String(raw || '').trim().replace(/^\/+/, '');
+        return isGenericMockupPath(p) ? '' : p;
+    }
+
+    function mockupSrcFromPath(raw) {
+        const p = resolveMockupPath(raw);
+        return p ? '/' + p : '';
+    }
+
     function productHasPerColorMockups(product) {
         return Object.values(product?.colorData || {}).some((entry) => String(entry?.mockupPath || '').trim());
     }
@@ -409,22 +424,29 @@ function _nebMain() {
 
     function updateMockupImageSource() {
         if (!mockupBase) return;
-        const nextPath = String(state.productMockupPath || '').trim().replace(/^\/+/, '');
-        if (!nextPath) return;
+        const nextPath = resolveMockupPath(state.productMockupPath);
+        if (!nextPath) {
+            mockupBase.removeAttribute('src');
+            mockupBase.hidden = true;
+            mockupBase.closest('.digitify-media-stage')?.classList.add('is-media-loading');
+            return;
+        }
         const currentPath = String(mockupBase.getAttribute('src') || '').trim().replace(/^\/+/, '');
         if (currentPath === nextPath) {
             syncShirtTintMask();
             return;
         }
+        mockupBase.closest('.digitify-media-stage')?.classList.add('is-media-loading');
         mockupBase.onerror = () => {
             mockupBase.onerror = null;
-            mockupBase.src = 'assets/tshirt_mockup.png';
-            state.productMockupPath = 'assets/tshirt_mockup.png';
-            syncShirtTintMask();
-            updateShirtColor();
+            mockupBase.removeAttribute('src');
+            mockupBase.hidden = true;
+            mockupBase.closest('.digitify-media-stage')?.classList.add('is-media-loading');
         };
         mockupBase.onload = () => {
             mockupBase.onload = null;
+            mockupBase.hidden = false;
+            mockupBase.closest('.digitify-media-stage')?.classList.remove('is-media-loading');
             syncShirtTintMask();
             updateShirtColor();
         };
@@ -435,7 +457,7 @@ function _nebMain() {
         const p = product || getSelectedProduct();
         state.productId = String(p?.id || 'tshirt');
         state.productName = String(p?.name || 'Product');
-        state.productMockupPath = getDesignerMockupPath(p) || 'assets/tshirt_mockup.png';
+        state.productMockupPath = resolveMockupPath(getDesignerMockupPath(p));
         state.productPriceMultiplier = Math.max(0.1, Number(p?.priceMultiplier) || 1);
         state.productExtraFeeMultiplier = Math.max(0, Number(p?.extraDesignFeeMultiplier) || 1);
         // Prijsmatrix per product
@@ -476,24 +498,25 @@ function _nebMain() {
         if (!activeProductBadge) return;
         const p = product || getSelectedProduct();
         const name = String(p?.name || state.productName || 'Product');
-        const path = String(getDesignerMockupPath(p) || state.productMockupPath || 'assets/tshirt_mockup.png').trim().replace(/^\/+/, '');
-        const src = '/' + (path || 'assets/tshirt_mockup.png');
+        const path = resolveMockupPath(getDesignerMockupPath(p) || state.productMockupPath);
+        const src = mockupSrcFromPath(path);
         activeProductBadge.innerHTML = `
-            <img class="apb-thumb" src="${escapeHtml(src)}" alt="${escapeHtml(name)}">
+            <span class="apb-thumb-wrap digitify-media-stage is-media-loading">
+                <img class="apb-thumb" ${src ? `src="${escapeHtml(src)}"` : ''} alt="${escapeHtml(name)}" data-digitify-media>
+                ${NEB.mediaLoaderHtml('sm')}
+            </span>
             <div class="apb-copy">
                 <span class="apb-label">Geselecteerd product</span>
                 <strong class="apb-name">${escapeHtml(name)}</strong>
             </div>
         `;
+        NEB.wireMediaImage(activeProductBadge.querySelector('.apb-thumb'));
     }
 
     function renderProductSelector() {
         if (!productSelector) return;
         const products = getCatalogProducts();
-        const safePath = (raw) => {
-            const p = String(raw || '').trim();
-            return p ? '/' + p.replace(/^\/+/, '') : '/assets/tshirt_mockup.png';
-        };
+        const safePath = (raw) => mockupSrcFromPath(raw);
         productSelector.innerHTML = products.map((p) => {
             const priceMul = Number(p.priceMultiplier) || 1;
             const label = `${p.name}${priceMul !== 1 ? ` (x${priceMul.toFixed(2)})` : ''}`;
@@ -506,12 +529,16 @@ function _nebMain() {
                 const price = Math.max(0, Number(_cfg().pricing?.basePrice || 0) * mul);
                 return `
                     <button class="product-card" type="button" data-product-id="${id}" role="radio" aria-checked="false" title="${escapeHtml(String(p.name || 'Product'))}">
-                        <span class="pc-media"><img src="${escapeHtml(safePath(getDesignerMockupPath(p)))}" alt="${escapeHtml(String(p.name || 'Product'))}"></span>
+                        <span class="pc-media digitify-media-stage is-media-loading">
+                            <img ${safePath(getDesignerMockupPath(p)) ? `src="${escapeHtml(safePath(getDesignerMockupPath(p)))}"` : ''} alt="${escapeHtml(String(p.name || 'Product'))}" data-digitify-media>
+                            ${NEB.mediaLoaderHtml('sm')}
+                        </span>
                         <span class="pc-name">${escapeHtml(String(p.name || 'Product'))}</span>
                         <span class="pc-meta">${escapeHtml(fmtEUR(price))}${mul !== 1 ? ` · x${mul.toFixed(2)}` : ''}</span>
                     </button>
                 `;
             }).join('');
+            NEB.wireMediaImages(productCards);
             productCards.addEventListener('click', (e) => {
                 const btn = e.target.closest('.product-card[data-product-id]');
                 if (!btn) return;
@@ -1244,9 +1271,14 @@ function _nebMain() {
         if (mockupBase) {
             // Kleurspecifieke mockup: als het product een eigen afbeelding heeft voor deze kleur, gebruik die
             const colorMockupPath = (state.productColorData || {})[colorHex]?.mockupPath;
-            const activeMockup = colorMockupPath ? `/${colorMockupPath}` : `/${state.productMockupPath || 'assets/tshirt_mockup.png'}`;
-            if (mockupBase.getAttribute('data-current-src') !== activeMockup) {
-                mockupBase.src = activeMockup;
+            const activeMockup = mockupSrcFromPath(colorMockupPath || state.productMockupPath);
+            if (!activeMockup) {
+                mockupBase.removeAttribute('src');
+                mockupBase.hidden = true;
+                mockupBase.closest('.digitify-media-stage')?.classList.add('is-media-loading');
+            } else if (mockupBase.getAttribute('data-current-src') !== activeMockup) {
+                mockupBase.hidden = false;
+                mockupBase.src = activeMockup.replace(/^\//, '');
                 mockupBase.setAttribute('data-current-src', activeMockup);
             }
 
@@ -2144,24 +2176,26 @@ async function placeOrder() {
         const products = getCatalogProducts();
         const cfg = _cfg();
         const globalBasePrice = Number(cfg.pricing?.basePrice || 34.95);
-        const safePath = (raw) => {
-            const p = String(raw || '').trim();
-            return p ? '/' + p.replace(/^\/+/, '') : '/assets/tshirt_mockup.png';
-        };
+        const safePath = (raw) => mockupSrcFromPath(raw);
         container.innerHTML = products.map((p) => {
             const mul = Math.max(0.1, Number(p.priceMultiplier) || 1);
             const fromPrice = p.basePrice != null ? p.basePrice : globalBasePrice * mul;
             const id = escapeHtml(String(p.id || ''));
             const name = escapeHtml(String(p.name || 'Product'));
             const active = String(p.id || '') === String(state.productId || '') ? ' active' : '';
+            const thumbSrc = safePath(getDesignerMockupPath(p));
             return `<button class="hp-product-card hp-product-card--rail${active}" data-product-id="${id}" type="button" title="${name}" aria-pressed="${active ? 'true' : 'false'}">
-                <span class="hp-rail-thumb"><img src="${escapeHtml(safePath(getDesignerMockupPath(p)))}" alt="${name}"></span>
+                <span class="hp-rail-thumb digitify-media-stage is-media-loading">
+                    <img ${thumbSrc ? `src="${escapeHtml(thumbSrc)}"` : ''} alt="${name}" data-digitify-media>
+                    ${NEB.mediaLoaderHtml('sm')}
+                </span>
                 <span class="hp-rail-copy">
                     <span class="hp-rail-name">${name}</span>
                     <span class="hp-rail-price">${escapeHtml(fmtEUR(fromPrice))}</span>
                 </span>
             </button>`;
         }).join('');
+        NEB.wireMediaImages(container);
 
         if (!homepageProductsBound) {
             container.addEventListener('click', (e) => {
@@ -2190,4 +2224,6 @@ async function placeOrder() {
         applySelectedProduct(getSelectedProduct(), { preferWhite: true });
     }
     updatePricingUI();
+    if (mockupBase) NEB.wireMediaImage(mockupBase);
+    if (productPreviewMockupBase) NEB.wireMediaImage(productPreviewMockupBase);
 }

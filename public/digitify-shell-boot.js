@@ -66,6 +66,13 @@
       .catch(function () { return null; });
   }
 
+  if (!window.__NEB_ME_PROMISE && !window.NEB_USER) {
+    window.__NEB_ME_PROMISE = fetch('/api/auth/me', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { return d && d.user ? d.user : null; })
+      .catch(function () { return null; });
+  }
+
   if (!document.getElementById('digitifyPreconnect')) {
     var preconnect = document.createElement('link');
     preconnect.id = 'digitifyPreconnect';

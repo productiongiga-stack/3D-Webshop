@@ -4610,25 +4610,42 @@ function openProductModal(productIdx, draft, globalCfg, rerenderFn, persistFn = 
       </div>`;
   }).join('');
 
-  const sizeModalRows = globalSizes.map(s => {
-    const prodSizes = Array.isArray(p.sizes) ? p.sizes : [];
-    const sizeSpec = prodSizes.find((sz) => String(typeof sz === 'string' ? sz : (sz.code || '')).toUpperCase() === String(s).toUpperCase());
-    const checked = !!sizeSpec || prodSizes.map((sz) => typeof sz === 'string' ? sz : sz.code).includes(String(s));
+  const prodSizes = Array.isArray(p.sizes) ? p.sizes : [];
+  const globalSizeSet = new Set(globalSizes.map((s) => String(s).toUpperCase()));
+  const renderSizeModalRow = (codeRaw, sizeSpec, opts = {}) => {
+    const code = String(codeRaw || '').trim().toUpperCase();
+    if (!code) return '';
+    const checked = opts.checked !== false;
     const widthMm = Number(sizeSpec?.widthMm || sizeSpec?.width || 0) || 0;
     const heightMm = Number(sizeSpec?.heightMm || sizeSpec?.height || 0) || 0;
     const cmText = (widthMm > 0 && heightMm > 0) ? `${(widthMm / 10).toFixed(1)} × ${(heightMm / 10).toFixed(1)} cm` : 'maat niet ingesteld';
-    const sizePrice = (p.sizePrices || {})[s];
+    const sizePrice = (p.sizePrices || {})[code];
+    const customClass = opts.custom ? ' prod-modal-size-row--custom' : '';
+    const lockHint = opts.custom ? '<span class="muted compact">productmaat</span>' : '';
     return `
-      <div class="prod-modal-size-row">
-        <input type="checkbox" class="pm-size-enabled" data-modal-size="${escAttr(s)}" ${checked ? 'checked' : ''}>
-        <span class="pm-size-label">${escText(s)}</span>
-        <input type="number" step="0.01" min="0" class="select-inline pm-size-price" value="${sizePrice != null ? sizePrice : ''}" placeholder="Opslag €" style="width:90px" data-modal-size-price="${escAttr(s)}" title="Productspecifieke maat-opslag">
+      <div class="prod-modal-size-row${customClass}">
+        <input type="checkbox" class="pm-size-enabled" data-modal-size="${escAttr(code)}" ${checked ? 'checked' : ''}${opts.custom ? ' data-modal-size-custom="1"' : ''}>
+        <span class="pm-size-label">${escText(code)}</span>
+        <input type="number" step="0.01" min="0" class="select-inline pm-size-price" value="${sizePrice != null ? sizePrice : ''}" placeholder="Opslag €" style="width:90px" data-modal-size-price="${escAttr(code)}" title="Productspecifieke maat-opslag">
         <span class="muted compact">€ extra</span>
-        <input type="number" min="10" max="20000" step="1" class="select-inline pm-size-mm" value="${widthMm || ''}" data-modal-size-width="${escAttr(s)}" placeholder="breedte mm" style="width:95px">
-        <input type="number" min="10" max="20000" step="1" class="select-inline pm-size-mm" value="${heightMm || ''}" data-modal-size-height="${escAttr(s)}" placeholder="hoogte mm" style="width:95px">
-        <span class="muted compact" data-modal-size-cm="${escAttr(s)}">${escText(cmText)}</span>
+        ${lockHint}
+        <input type="number" min="10" max="20000" step="1" class="select-inline pm-size-mm" value="${widthMm || ''}" data-modal-size-width="${escAttr(code)}" placeholder="breedte mm" style="width:95px">
+        <input type="number" min="10" max="20000" step="1" class="select-inline pm-size-mm" value="${heightMm || ''}" data-modal-size-height="${escAttr(code)}" placeholder="hoogte mm" style="width:95px">
+        <span class="muted compact" data-modal-size-cm="${escAttr(code)}">${escText(cmText)}</span>
       </div>`;
+  };
+  const sizeModalRows = globalSizes.map((s) => {
+    const sizeSpec = prodSizes.find((sz) => String(typeof sz === 'string' ? sz : (sz.code || '')).toUpperCase() === String(s).toUpperCase());
+    const checked = !!sizeSpec || prodSizes.map((sz) => typeof sz === 'string' ? sz : sz.code).includes(String(s));
+    return renderSizeModalRow(s, sizeSpec, { checked, custom: false });
   }).join('');
+  const customSizeModalRows = prodSizes
+    .map((sz) => {
+      const code = String(typeof sz === 'string' ? sz : (sz.code || '')).toUpperCase();
+      if (!code || globalSizeSet.has(code)) return '';
+      return renderSizeModalRow(code, typeof sz === 'object' ? sz : { code: sz }, { checked: true, custom: true });
+    })
+    .join('');
 
   document.getElementById('prodEditModal')?.remove();
   const modal = document.createElement('div');
@@ -4727,7 +4744,7 @@ function openProductModal(productIdx, draft, globalCfg, rerenderFn, persistFn = 
         <div class="prod-modal-section">
           <h4 class="prod-modal-section-title">Maten voor dit product</h4>
           <p class="muted compact" style="margin:-.5rem 0 .75rem">Vink aan welke maten beschikbaar zijn. Stel optioneel een productspecifieke maat-opslag in (overschrijft globale waarde).</p>
-          <div class="prod-modal-size-list">${sizeModalRows}</div>
+          <div class="prod-modal-size-list">${sizeModalRows}${customSizeModalRows}</div>
         </div>` : ''}
       </div>
       <div class="prod-modal-footer">
@@ -4982,6 +4999,10 @@ function openProductModal(productIdx, draft, globalCfg, rerenderFn, persistFn = 
         priceUpcharge: Number.isFinite(pv) ? Math.max(0, pv) : Number(colorDataDraft[hex]?.priceUpcharge || 0)
       };
     });
+    (Array.isArray(baseProduct?.colorHexes) ? baseProduct.colorHexes : []).forEach((raw) => {
+      const hex = normalizeHex(raw);
+      if (hex && !selectedColors.includes(hex)) selectedColors.push(hex);
+    });
 
     const selectedSizes = [];
     const sizePrices = {};
@@ -4990,12 +5011,15 @@ function openProductModal(productIdx, draft, globalCfg, rerenderFn, persistFn = 
     };
     modal.querySelectorAll('[data-modal-size]').forEach(cb => {
       if (!cb.checked) return;
-      const code = cb.dataset.modalSize;
+      const code = String(cb.dataset.modalSize || '').toUpperCase();
       let widthMm = parseInt(modal.querySelector(`[data-modal-size-width="${CSS.escape(code)}"]`)?.value || '0', 10) || 0;
       let heightMm = parseInt(modal.querySelector(`[data-modal-size-height="${CSS.escape(code)}"]`)?.value || '0', 10) || 0;
       if (widthMm < 10 || heightMm < 10) {
-        const fb = fallbackSizeMm[String(code || '').toUpperCase()];
-        if (fb) {
+        const existing = (baseProduct?.sizes || []).find((sz) => String(typeof sz === 'string' ? sz : (sz.code || '')).toUpperCase() === code);
+        widthMm = Number(existing?.widthMm || existing?.width || 0) || widthMm;
+        heightMm = Number(existing?.heightMm || existing?.height || 0) || heightMm;
+        const fb = fallbackSizeMm[code];
+        if ((widthMm < 10 || heightMm < 10) && fb) {
           widthMm = fb[0];
           heightMm = fb[1];
         }
@@ -5006,6 +5030,17 @@ function openProductModal(productIdx, draft, globalCfg, rerenderFn, persistFn = 
         heightMm: Math.max(10, Math.min(20000, heightMm || 0))
       });
     });
+    if (!selectedSizes.length && Array.isArray(baseProduct?.sizes) && baseProduct.sizes.length) {
+      baseProduct.sizes.forEach((entry) => {
+        const code = String(typeof entry === 'string' ? entry : (entry.code || '')).toUpperCase();
+        if (!code) return;
+        selectedSizes.push({
+          code,
+          widthMm: Math.max(10, Math.min(20000, Number(entry?.widthMm || entry?.width || 0) || 100)),
+          heightMm: Math.max(10, Math.min(20000, Number(entry?.heightMm || entry?.height || 0) || 100))
+        });
+      });
+    }
     modal.querySelectorAll('[data-modal-size-price]').forEach(inp => {
       const v = parseFloat(inp.value || '');
       if (Number.isFinite(v)) sizePrices[inp.dataset.modalSizePrice] = v;

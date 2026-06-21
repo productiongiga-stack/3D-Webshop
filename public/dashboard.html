@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="/digitify-shell-boot.js?v=7"></script>
+  <script src="/digitify-shell-boot.js?v=10"></script>
 <title>Dashboard — Digitify</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css?v=7">
 <link rel="stylesheet" href="/app.css?v=7">
-<link rel="stylesheet" href="/digitify-shell.css?v=7">
+<link rel="stylesheet" href="/digitify-shell.css?v=11">
 </head>
 <body class="theme-light digitify-shop-body" data-page-title="Dashboard">
   <div class="ambient-bg">
@@ -57,8 +57,8 @@
 
   <div id="siteFooterMount"></div>
 
-  <script src="/app.js?v=8"></script>
-  <script src="/digitify-shell.js?v=7"></script>
+  <script src="/app.js?v=11"></script>
+  <script src="/digitify-shell.js?v=10"></script>
   <script>
     const STATUS_FLOW = [
       { code: 'NEW', label: 'Nieuw', icon: '&#x25CB;' },
@@ -138,8 +138,10 @@
             const pct = o.status === 'CANCELLED' ? 0 : Math.round(((idx + 1) / STATUS_FLOW.length) * 100);
             return `
             <div class="order-card" data-id="${o.id}">
-              <div class="oc-thumb">
-                ${firstPreview ? `<img src="/${firstPreview}" alt="">` : '<div class="oc-thumb-empty">&#x2726;</div>'}
+              <div class="oc-thumb digitify-media-stage is-media-loading">
+                ${firstPreview
+                  ? `<img src="/${firstPreview}" alt="" data-digitify-media>${NEB.mediaLoaderHtml('sm')}`
+                  : '<div class="oc-thumb-empty">&#x2726;</div>'}
               </div>
               <div class="oc-meta">
                 <div class="oc-top">
@@ -162,6 +164,7 @@
             </div>`;
           }).join('')}
         </div>`;
+      NEB.wireMediaImages(wrap);
 
       wrap.addEventListener('click', e => {
         const id = e.target.closest('[data-view]')?.dataset.view;
@@ -187,6 +190,7 @@
             </div>
           </div>`;
         document.body.appendChild(modal);
+        NEB.wireMediaImages(modal);
         requestAnimationFrame(() => modal.classList.add('show'));
         const close = () => {
           modal.classList.remove('show');
@@ -286,9 +290,9 @@
           ${items.map(it => `
             <div class="card" style="margin-bottom:.85rem;padding:1.25rem">
               <div class="detail-grid">
-                <div class="preview-tile">
+                <div class="preview-tile digitify-media-stage is-media-loading">
                   ${it.preview_path
-                    ? `<img src="/${String(it.preview_path).replace(/^\/+/, '')}" alt="${(it.product_label || 'Product').replace(/"/g, '&quot;')}" onerror="this.onerror=null;this.src='/assets/tshirt_mockup.png';">`
+                    ? `<img src="/${String(it.preview_path).replace(/^\/+/, '')}" alt="${(it.product_label || 'Product').replace(/"/g, '&quot;')}" data-digitify-media>${NEB.mediaLoaderHtml('sm')}`
                     : `<div class="muted compact" style="padding:1rem">Geen preview</div>`}
                 </div>
                 <div>

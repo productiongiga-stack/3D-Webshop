@@ -162,8 +162,15 @@
             <div class="digitify-header__end">
               <div class="digitify-header__actions" aria-label="Shop acties">
                 <div class="digitify-header__shop-tools">
-                  <span data-cart-icon></span>
-                  <span data-nav-user class="digitify-header__auth"></span>
+                  <span data-cart-icon>
+                    <a class="nav-cart" href="/cart" title="Winkelmand" aria-label="Winkelmand">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></svg>
+                    </a>
+                  </span>
+                  <span data-nav-user class="digitify-header__auth">
+                    <a class="digitify-header__auth-link" href="/login">Inloggen</a>
+                    <a class="digitify-header__auth-link digitify-header__auth-link--solid" href="/register">Aanmelden</a>
+                  </span>
                 </div>
                 <a href="${wpUrl(cfg, '/contact/')}" class="digitify-header__cta">
                   <span class="digitify-header__cta-label">Offerte</span>
@@ -475,6 +482,7 @@
     document.documentElement.classList.add('digitify-page-ready');
     document.documentElement.classList.remove('digitify-shell-booting');
     document.documentElement.classList.add('digitify-shell-ready');
+    document.dispatchEvent(new CustomEvent('digitify:shell-ready'));
     window.setTimeout(() => {
       document.documentElement.classList.remove('digitify-page-loading', 'digitify-page-leaving');
       document.getElementById('digitifyPageOverlay')?.remove();
