@@ -97,14 +97,6 @@ const STOREFRONT_CONFIG_FRESH_MS = 30 * 60 * 1000;
 const STOREFRONT_CONFIG_STALE_MS = 24 * 60 * 60 * 1000;
 let miniVisibilityObserver = null;
 
-function shouldUseHero3d() {
-  if (prefersMobilePosterOnly || touchLikeDevice) return false;
-  if (navigator.connection?.saveData) return false;
-  const deviceMemory = Number(navigator.deviceMemory);
-  if (Number.isFinite(deviceMemory) && deviceMemory > 0 && deviceMemory <= 4) return false;
-  return true;
-}
-
 function readStorefrontConfigCache(allowStale = false) {
   try {
     const raw = sessionStorage.getItem(STOREFRONT_CONFIG_CACHE_KEY);
@@ -123,18 +115,6 @@ function writeStorefrontConfigCache(cfg) {
   try {
     sessionStorage.setItem(STOREFRONT_CONFIG_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: cfg }));
   } catch (_) {}
-}
-
-function showHeroPosterFallback(product) {
-  const poster = productPreviewPoster(product);
-  const posterEl = $('#hero3dPoster');
-  if (posterEl) {
-    posterEl.hidden = !poster;
-    posterEl.src = poster || '';
-    posterEl.alt = product?.name || 'Product';
-    if (poster) NEB.wireMediaImage?.(posterEl);
-  }
-  setHeroMediaMode('2d');
 }
 
 function showStorefrontCatalogError(message, canRetry = true) {
@@ -1026,8 +1006,8 @@ async function loadHeroModel(product) {
   state.activeModel = null;
   paintRendererClear(state.renderer);
 
-  if (!has3d || !shouldUseHero3d()) {
-    showHeroPosterFallback(product);
+  if (!has3d) {
+    setHeroMediaMode('2d');
     return;
   }
 
